@@ -56,7 +56,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'K.I.P. Hub ${{ github.ref_name }}'
-          releaseBody: 'Official release ${{ github.ref_name }} of K.I.P. Hub.'
+          releaseBody: 'Release ${{ github.ref_name }} of K.I.P. Hub.'
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
