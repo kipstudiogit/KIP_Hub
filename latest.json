@@ -1,0 +1,19 @@
+{
+  "version": "1.5.6",
+  "notes": "Release v1.5.6 with updated security core and Minecraft loader stability.",
+  "pub_date": "2026-10-01T12:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIG1pbmlzaWduIHNlY3JldCBrZXkKUldRVzVNVkRzY1dEak53V1FqR2k2U0xWdzdGZ2Nkd3RCSlF1Z2t3V2Rtdk00TStWdzg0Q1BnL0EK",
+      "url": "https://github.com/KIP-Studio/KIP_Hub/releases/download/v1.5.6/K.I.P.-Hub_1.5.6_x64_en-US.msi.zip"
+    },
+    "linux-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIG1pbmlzaWduIHNlY3JldCBrZXkKUldRVzVNVkRzY1dEak53V1FqR2k2U0xWdzdGZ2Nkd3RCSlF1Z2t3V2Rtdk00TStWdzg0Q1BnL0EK",
+      "url": "https://github.com/KIP-Studio/KIP_Hub/releases/download/v1.5.6/kip-hub_1.5.6_amd64.AppImage.tar.gz"
+    },
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIG1pbmlzaWduIHNlY3JldCBrZXkKUldRVzVNVkRzY1dEak53V1FqR2k2U0xWdzdGZ2Nkd3RCSlF1Z2t3V2Rtdk00TStWdzg0Q1BnL0EK",
+      "url": "https://github.com/KIP-Studio/KIP_Hub/releases/download/v1.5.6/K.I.P.-Hub.app.tar.gz"
+    }
+  }
+}

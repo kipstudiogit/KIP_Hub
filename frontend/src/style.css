@@ -1,0 +1,225 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #050505 !important;
+  }
+
+  body {
+    user-select: none;
+    -webkit-user-select: none;
+    color: #fafafa;
+    overflow: hidden;
+  }
+
+  #vanta-bg {
+    display: none !important;
+  }
+
+  input, textarea, [contenteditable="true"] {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  ::selection {
+    background: rgba(99, 102, 241, 0.4);
+    color: #ffffff;
+  }
+}
+
+@layer utilities {
+  .animate-blob {
+    animation: blob 25s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .animation-delay-2000 {
+    animation-delay: -5s;
+  }
+  .animation-delay-4000 {
+    animation-delay: -10s;
+  }
+}
+
+@keyframes blob {
+  0% { transform: translate(0px, 0px) scale(1); }
+  33% { transform: translate(40px, -60px) scale(1.1); }
+  66% { transform: translate(-30px, 30px) scale(0.9); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+
+@layer components {
+  [data-tauri-drag-region] {
+    -webkit-app-region: drag;
+  }
+
+  .titlebar-btn, select, button, input, textarea, a, .toggle-checkbox, .toggle-label, .cursor-pointer {
+    -webkit-app-region: no-drag;
+  }
+
+  .gamepad-focus {
+    outline: 3px solid #6366F1 !important;
+    outline-offset: 2px !important;
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.8) !important;
+    transform: scale(1.03) !important;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+    z-index: 50 !important;
+  }
+
+  .kip-card {
+    @apply bg-black/40 border border-white/5 backdrop-blur-xl shadow-2xl rounded-3xl;
+  }
+
+  .kip-card-hover {
+    @apply hover:border-white/10 hover:bg-black/50 transition-all duration-300;
+  }
+
+  .kip-btn-primary {
+    @apply bg-indigo-500 hover:bg-indigo-400 text-white font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(99,102,241,0.3)] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .kip-btn-danger {
+    @apply bg-red-500 hover:bg-red-400 text-white font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .kip-btn-ghost {
+    @apply bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .kip-input {
+    @apply w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-indigo-500 font-medium transition text-white text-sm placeholder:text-white/30;
+  }
+
+  .custom-scroll::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    transition: background 0.3s ease;
+  }
+
+  .custom-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .skeleton-box {
+    background: #1a1a24;
+    background-image: linear-gradient(to right, #1a1a24 0%, #2a2a3a 20%, #1a1a24 40%, #1a1a24 100%);
+    background-repeat: no-repeat;
+    background-size: 1000px 100%;
+    animation: shimmer 2s infinite linear forwards;
+  }
+
+  .toggle-checkbox {
+    top: 0;
+    left: 0;
+    right: auto;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s ease;
+    border-color: #3f3f46;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
+    z-index: 2;
+  }
+
+  .toggle-checkbox:checked {
+    transform: translateX(100%);
+    border-color: #6366F1;
+  }
+
+  .toggle-label {
+    background-color: #27272a;
+    transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.5);
+    z-index: 1;
+  }
+
+  .toggle-checkbox:checked + .toggle-label {
+    background-color: #6366F1;
+  }
+
+  .big-picture-mode .titlebar {
+    display: none !important;
+  }
+
+  .cursor-none {
+    cursor: none !important;
+  }
+
+  .gamepad-badge {
+    @apply inline-flex items-center justify-center font-black rounded-lg text-[10px] tracking-wider uppercase px-2 py-0.5 border shadow-sm;
+  }
+}
+
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+}
+
+.slide-enter-active, .slide-leave-active {
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease;
+}
+
+.slide-enter-from, .slide-leave-to {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+.toast-enter-active, .toast-leave-active {
+  transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.toast-enter-from {
+  opacity: 0;
+  transform: translateX(100%) scale(0.9);
+}
+
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(20px) scale(0.9);
+}
+
+.stagger-1 { animation: fadeInUp 0.5s ease-out 0.1s both; }
+.stagger-2 { animation: fadeInUp 0.5s ease-out 0.2s both; }
+.stagger-3 { animation: fadeInUp 0.5s ease-out 0.3s both; }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+.markdown-body {
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  color: #ffffff; font-weight: 700; margin-top: 1.5em; margin-bottom: 0.5em;
+}
+.markdown-body p { margin-top: 0; margin-bottom: 1em; }
+.markdown-body a { color: #6366f1; text-decoration: none; transition: color 0.2s; }
+.markdown-body a:hover { color: #818cf8; text-decoration: underline; }
+.markdown-body ul { list-style-type: disc; padding-left: 20px; margin-bottom: 0.5em; }
+.markdown-body code { background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
+.markdown-body pre { background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; margin: 10px 0; border: 1px solid rgba(255,255,255,0.1); overflow-x: auto; }
+.markdown-body pre code { background: transparent; padding: 0; color: #e4e4e7; }
