@@ -1,0 +1,17 @@
+name = "kip-backend"
+main = "worker.js"
+compatibility_date = "2026-09-29"
+preview_urls = false
+
+[vars]
+ENVIRONMENT = "production"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+
+[[kv_namespaces]]
+binding = "KIP_KV"
+id = "53d33baec4b341b197bbb65056592a44"

@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "K.I.P. Hub (Debug)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/src-tauri/target/debug/kip_hub",
+      "cwd": "${workspaceFolder}/src-tauri",
+      "preLaunchTask": "tauri: dev"
+    }
+  ]
+}

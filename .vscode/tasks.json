@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "frontend: install",
+      "type": "shell",
+      "command": "npm",
+      "args": ["install"],
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      }
+    },
+    {
+      "label": "tauri: dev",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["tauri", "dev"],
+      "options": {
+        "cwd": "${workspaceFolder}/src-tauri"
+      },
+      "problemMatcher": [],
+      "isBackground": true
+    },
+    {
+      "label": "tauri: build",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["tauri", "build"],
+      "options": {
+        "cwd": "${workspaceFolder}/src-tauri"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
