@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -175,13 +175,12 @@ impl SwarmManager {
 
         let meta_file = save_path.join(".swarm_meta.json");
         let mut verified_files = 0u64;
-        let mut total_files = 1u64;
 
         if meta_file.exists() {
             if let Ok(content) = fs::read_to_string(&meta_file) {
                 if let Ok(meta_json) = serde_json::from_str::<Value>(&content) {
                     if let Some(files) = meta_json["files"].as_array() {
-                        total_files = files.len() as u64;
+                        let total_files = files.len() as u64;
                         for file_val in files {
                             if let Some(rel_path) = file_val["path"].as_str() {
                                 let target_file = save_path.join(rel_path);
