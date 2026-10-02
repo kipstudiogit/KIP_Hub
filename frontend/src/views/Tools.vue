@@ -6,7 +6,7 @@
     </div>
 
     <div class="grid grid-cols-3 gap-6 mb-8 stagger-2">
-      <div @click="runTool({id: 'mod_doctor'})" class="kip-card kip-card-hover p-6 relative overflow-hidden border-pink-500/20 hover:border-pink-500/40 cursor-pointer flex flex-col justify-center group">
+      <div @click="runTool({ id: 'mod_doctor' })" class="kip-card kip-card-hover p-6 relative overflow-hidden border-pink-500/20 hover:border-pink-500/40 cursor-pointer flex flex-col justify-center group">
         <div class="absolute -right-10 -top-10 w-48 h-48 bg-pink-500/10 blur-3xl rounded-full pointer-events-none group-hover:bg-pink-500/20 transition-all duration-700"></div>
         <div class="flex items-center gap-4 relative z-10">
           <div class="p-4 bg-pink-500/10 rounded-2xl border border-pink-500/20 shadow-[0_0_15px_rgba(236,72,153,0.2)] group-hover:scale-110 transition-transform duration-500 shrink-0">
@@ -21,7 +21,7 @@
         </div>
       </div>
 
-      <div @click="runTool({id: 'shield_scan'})" class="kip-card kip-card-hover p-6 relative overflow-hidden border-rose-500/20 hover:border-rose-500/40 cursor-pointer flex flex-col justify-center group">
+      <div @click="runTool({ id: 'shield_scan' })" class="kip-card kip-card-hover p-6 relative overflow-hidden border-rose-500/20 hover:border-rose-500/40 cursor-pointer flex flex-col justify-center group">
         <div class="absolute -left-10 -bottom-10 w-48 h-48 bg-rose-500/10 blur-3xl rounded-full pointer-events-none group-hover:bg-rose-500/20 transition-all duration-700"></div>
         <div class="flex items-center gap-4 relative z-10">
           <div class="p-4 bg-rose-500/10 rounded-2xl border border-rose-500/20 shadow-[0_0_15px_rgba(244,63,94,0.2)] group-hover:scale-110 transition-transform duration-500 shrink-0">
@@ -221,58 +221,138 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
+import type { Component } from 'vue'
 import {
-  Trash2, Skull, Archive, Map as MapIcon, WifiOff, Cpu, Stethoscope,
-  FileWarning, UploadCloud, MonitorX, Zap, Shield, X, Loader,
-  CheckCircle, AlertTriangle, AlertCircle, DownloadCloud, Info,
-  ShieldAlert, ScanSearch, BugOff, ShieldCheck
+  Trash2,
+  Skull,
+  Archive,
+  Map as MapIcon,
+  WifiOff,
+  Cpu,
+  Stethoscope,
+  FileWarning,
+  UploadCloud,
+  MonitorX,
+  Zap,
+  Shield,
+  X,
+  Loader,
+  CheckCircle,
+  AlertTriangle,
+  AlertCircle,
+  DownloadCloud,
+  Info,
+  ShieldAlert,
+  ScanSearch,
+  BugOff,
+  ShieldCheck,
 } from 'lucide-vue-next'
-import { state, api, t, showToast } from '@/store.js'
+import { state, t, showToast } from '@/store'
+import {
+  bridge,
+  invokeSafe,
+  type ToolExecutionResult,
+  type GenericActionResult,
+} from '@/bridge'
 
-const doctorModal = ref({ isOpen: false, loading: false, isClean: false, issues: [] })
-const shieldModal = ref({ isOpen: false, loading: false, isClean: false, threats: [] })
+export interface DoctorIssue {
+  id: string
+  type: 'CRITICAL' | 'WARNING' | 'INFO'
+  text: string
+  action: 'DOWNLOAD' | 'DELETE' | 'NONE'
+  target: string
+  selected?: boolean
+}
 
-const perfTools = [
+export interface DoctorAnalysisResult {
+  is_clean: boolean
+  issues: DoctorIssue[]
+}
+
+export interface ShieldThreat {
+  file: string
+  hash: string
+  threats: string[]
+  safe?: boolean
+  error?: string | null
+}
+
+export interface ToolDefinition {
+  id: string
+  name: string
+  desc: string
+  bgClass: string
+  textClass: string
+  shadowClass: string
+  icon: Component
+}
+
+const doctorModal = ref<{
+  isOpen: boolean
+  loading: boolean
+  isClean: boolean
+  issues: DoctorIssue[]
+}>({
+  isOpen: false,
+  loading: false,
+  isClean: false,
+  issues: [],
+})
+
+const shieldModal = ref<{
+  isOpen: boolean
+  loading: boolean
+  isClean: boolean
+  threats: ShieldThreat[]
+}>({
+  isOpen: false,
+  loading: false,
+  isClean: false,
+  threats: [],
+})
+
+const perfTools: ToolDefinition[] = [
   { id: 'generate_jvm', name: 'RAM Optimizer', desc: 'Copy JVM arguments', bgClass: 'bg-purple-500/10', textClass: 'text-purple-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(168,85,247,0.4)]', icon: Cpu },
   { id: 'ai_fps', name: 'AI FPS Optimizer', desc: 'Auto-tune graphics', bgClass: 'bg-emerald-500/10', textClass: 'text-emerald-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(16,185,129,0.4)]', icon: Zap },
   { id: 'flush_dns', name: 'Flush DNS', desc: 'Fix network connection', bgClass: 'bg-cyan-500/10', textClass: 'text-cyan-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(6,182,212,0.4)]', icon: WifiOff },
-  { id: 'mclogs', name: 'Cloud Logs', desc: 'Upload to mclo.gs', bgClass: 'bg-blue-500/10', textClass: 'text-blue-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(59,130,246,0.4)]', icon: UploadCloud }
+  { id: 'mclogs', name: 'Cloud Logs', desc: 'Upload to mclo.gs', bgClass: 'bg-blue-500/10', textClass: 'text-blue-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(59,130,246,0.4)]', icon: UploadCloud },
 ]
 
-const cleanupTools = [
+const cleanupTools: ToolDefinition[] = [
   { id: 'clean_logs', name: 'Clean Logs', desc: 'Delete old gz/log files', bgClass: 'bg-red-500/10', textClass: 'text-red-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(239,68,68,0.4)]', icon: Trash2 },
   { id: 'kill_java', name: 'Kill Zombies', desc: 'Force stop Java processes', bgClass: 'bg-amber-500/10', textClass: 'text-amber-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(245,158,11,0.4)]', icon: Skull },
   { id: 'backup', name: 'Create Backup', desc: 'Zip all world saves', bgClass: 'bg-emerald-500/10', textClass: 'text-emerald-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(16,185,129,0.4)]', icon: Archive },
   { id: 'clean_worlds', name: 'Clean Worlds', desc: 'Remove minimap caches', bgClass: 'bg-indigo-500/10', textClass: 'text-indigo-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(99,102,241,0.4)]', icon: MapIcon },
   { id: 'wipe_configs', name: 'Wipe Configs', desc: 'Delete config folder', bgClass: 'bg-rose-500/10', textClass: 'text-rose-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(244,63,94,0.4)]', icon: FileWarning },
-  { id: 'reset_video', name: 'Reset Video', desc: 'Delete options.txt', bgClass: 'bg-slate-500/10', textClass: 'text-slate-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(148,163,184,0.4)]', icon: MonitorX }
+  { id: 'reset_video', name: 'Reset Video', desc: 'Delete options.txt', bgClass: 'bg-slate-500/10', textClass: 'text-slate-400', shadowClass: 'group-hover:shadow-[0_0_15px_rgba(148,163,184,0.4)]', icon: MonitorX },
 ]
 
-const runTool = async (tool) => {
-  if (!api.value) return
-
+const runTool = async (tool: { id: string }): Promise<void> => {
   if (tool.id === 'mod_doctor') {
     doctorModal.value.loading = true
     doctorModal.value.isOpen = true
     try {
-      const res = await api.value.run_tool(tool.id)
+      const res = await invokeSafe<ToolExecutionResult>('run_tool', { toolId: tool.id })
       if (res && res.success && res.doctor_res) {
-        doctorModal.value.isClean = res.doctor_res.is_clean || false
-        doctorModal.value.issues = (res.doctor_res.issues || []).map(i => ({
+        const doc = res.doctor_res as unknown as DoctorAnalysisResult
+        doctorModal.value.isClean = doc.is_clean || false
+        doctorModal.value.issues = (doc.issues || []).map((i) => ({
           ...i,
-          selected: i.action !== 'NONE'
+          selected: i.action !== 'NONE',
         }))
       } else {
-        showToast(t("Error"), res?.msg || t("Analysis failed."), "danger")
+        showToast(t('Error'), res?.msg || t('Analysis failed.'), 'danger')
         doctorModal.value.isOpen = false
       }
-    } catch (e) {
-      showToast(t("Error"), t("Backend communication failed."), "danger")
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
       doctorModal.value.isOpen = false
+    } finally {
+      doctorModal.value.loading = false
     }
-    doctorModal.value.loading = false
     return
   }
 
@@ -280,95 +360,110 @@ const runTool = async (tool) => {
     shieldModal.value.loading = true
     shieldModal.value.isOpen = true
     try {
-      const res = await api.value.run_tool(tool.id)
+      const res = await invokeSafe<ToolExecutionResult>('run_tool', { toolId: tool.id })
       if (res && res.success) {
         if (res.threats && res.threats.length > 0) {
           shieldModal.value.isClean = false
-          shieldModal.value.threats = res.threats
+          shieldModal.value.threats = res.threats as unknown as ShieldThreat[]
         } else {
           shieldModal.value.isClean = true
           shieldModal.value.threats = []
         }
       } else {
-        showToast(t("Error"), res?.msg || t("Scan failed."), "danger")
+        showToast(t('Error'), res?.msg || t('Scan failed.'), 'danger')
         shieldModal.value.isOpen = false
       }
-    } catch (e) {
-      showToast(t("Error"), t("Backend communication failed."), "danger")
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
       shieldModal.value.isOpen = false
+    } finally {
+      shieldModal.value.loading = false
     }
-    shieldModal.value.loading = false
     return
   }
 
   try {
-    const res = await api.value.run_tool(tool.id)
+    const res = await invokeSafe<ToolExecutionResult>('run_tool', { toolId: tool.id })
     if (res && res.success) {
-      showToast(t("Success"), res.msg, "success")
+      showToast(t('Success'), res.msg, 'success')
       if (res.clipboard) {
         navigator.clipboard.writeText(res.clipboard).catch(() => {})
       }
     } else {
-      showToast(t("Error"), res?.msg || t("Action failed."), "danger")
+      showToast(t('Error'), res?.msg || t('Action failed.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Backend communication failed."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
   }
 }
 
-const toggleSafeMode = async () => {
-  if (!api.value) return
+const toggleSafeMode = async (): Promise<void> => {
   try {
-    const res = await api.value.toggle_safe_mode()
-    if (res && res.success) {
+    const res = await invokeSafe<{ success: boolean; state?: boolean; msg?: string }>('toggle_safe_mode')
+    if (res && res.success && typeof res.state === 'boolean') {
       state.settings.safe_mode = res.state
-      showToast(t("Safe Mode"), res.state ? t("Enabled") : t("Disabled"), "success")
+      showToast(t('Safe Mode'), res.state ? t('Enabled') : t('Disabled'), 'success')
     } else {
-      showToast(t("Error"), res?.msg || t("Failed to toggle safe mode."), "danger")
+      showToast(t('Error'), res?.msg || t('Failed to toggle safe mode.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Backend communication failed."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
   }
 }
 
-const applyDoctorFixes = async () => {
-  if (!api.value) return
+const applyDoctorFixes = async (): Promise<void> => {
   doctorModal.value.loading = true
-  const selectedIssues = doctorModal.value.issues.filter(i => i.selected)
+  const selectedIssues = doctorModal.value.issues.filter((i) => i.selected)
 
   try {
-    const res = await api.value.apply_doctor_fixes(selectedIssues)
-    if (res && (res.success || res.deleted > 0 || res.downloaded > 0)) {
-      showToast(t("Fixed"), `${t('Deleted')} ${res.deleted || 0}, ${t('Downloaded')} ${res.downloaded || 0}.`, "success")
+    const res = await invokeSafe<{
+      success: boolean
+      deleted?: number
+      downloaded?: number
+      errors?: string[]
+    }>('apply_doctor_fixes', {
+      issues: selectedIssues,
+    })
+
+    if (res && (res.success || (res.deleted ?? 0) > 0 || (res.downloaded ?? 0) > 0)) {
+      showToast(
+        t('Fixed'),
+        `${t('Deleted')} ${res.deleted || 0}, ${t('Downloaded')} ${res.downloaded || 0}.`,
+        'success'
+      )
       if (res.errors && res.errors.length > 0) {
-        res.errors.forEach(err => showToast(t("Warning"), err, "danger"))
+        res.errors.forEach((e) => showToast(t('Warning'), e, 'danger'))
       }
       doctorModal.value.isOpen = false
     } else {
-      showToast(t("Error"), res?.errors?.[0] || t("Failed to apply fixes."), "danger")
+      showToast(t('Error'), res?.errors?.[0] || t('Failed to apply fixes.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Backend communication failed."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
+  } finally {
+    doctorModal.value.loading = false
   }
-
-  doctorModal.value.loading = false
 }
 
-const deleteThreat = async (filename) => {
-  if (!api.value) return
+const deleteThreat = async (filename: string): Promise<void> => {
   try {
-    const res = await api.value.delete_mod(filename)
+    const res: GenericActionResult = await bridge.deleteMod(filename)
     if (res && res.success) {
-      showToast(t("Quarantined"), t("Threat removed successfully."), "success")
-      shieldModal.value.threats = shieldModal.value.threats.filter(t => t.file !== filename)
+      showToast(t('Quarantined'), t('Threat removed successfully.'), 'success')
+      shieldModal.value.threats = shieldModal.value.threats.filter((t) => t.file !== filename)
       if (shieldModal.value.threats.length === 0) {
         shieldModal.value.isClean = true
       }
     } else {
-      showToast(t("Error"), res?.msg || t("Failed to delete threat file."), "danger")
+      showToast(t('Error'), res?.msg || t('Failed to delete threat file.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Backend communication failed."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
   }
 }
 </script>

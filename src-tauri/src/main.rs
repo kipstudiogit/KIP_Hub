@@ -1,62 +1,65 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(dead_code)]
 
-mod config;
-mod database;
-mod system_utils;
-mod mod_manager;
-mod auth_manager;
 mod api_manager;
-mod tool_manager;
-mod shield_manager;
-mod world_manager;
-mod media_manager;
-mod vcs_manager;
+mod auth_manager;
 mod builder_manager;
 mod cartographer_manager;
+mod commands;
+mod commands_ext;
+mod config;
+mod crash_service;
+mod database;
 mod doctor_manager;
 mod instance_manager;
 mod locales;
+mod media_manager;
+mod mod_manager;
 mod monitor_service;
-mod crash_service;
-mod rpc_service;
 mod overlay_service;
+mod rpc_service;
+mod shield_manager;
 mod signaling_service;
 mod swarm_manager;
+mod system_utils;
+mod tool_manager;
 mod tunnel_manager;
-mod commands;
-mod commands_ext;
+mod vcs_manager;
+mod world_manager;
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use parking_lot::Mutex;
-use tauri::Emitter;
+use tauri::{Emitter, RunEvent, WindowEvent};
 
-use commands::AppState;
-use database::DatabaseManager;
-use auth_manager::AuthManager;
 use api_manager::ApiManager;
-use instance_manager::InstanceManager;
+use auth_manager::AuthManager;
+use builder_manager::BuilderManager;
+use cartographer_manager::CartographerManager;
+use commands::AppState;
+use crash_service::CrashService;
+use database::DatabaseManager;
 use doctor_manager::DoctorManager;
+use instance_manager::InstanceManager;
+use media_manager::MediaManager;
+use monitor_service::MonitorService;
+use overlay_service::OverlayService;
+use rpc_service::RpcService;
 use shield_manager::ShieldManager;
+use signaling_service::SignalingService;
 use swarm_manager::SwarmManager;
 use tunnel_manager::TunnelManager;
-use world_manager::WorldManager;
-use media_manager::MediaManager;
 use vcs_manager::VCSManager;
-use cartographer_manager::CartographerManager;
-use builder_manager::BuilderManager;
-use monitor_service::MonitorService;
-use crash_service::CrashService;
-use rpc_service::RpcService;
-use overlay_service::OverlayService;
-use signaling_service::SignalingService;
+use world_manager::WorldManager;
 
 fn main() {
     let db_path = config::get_app_data_dir().join("kip_data.db");
-    let db = Arc::new(DatabaseManager::new(db_path.to_str().unwrap()).expect("Failed to initialize database"));
-    let stop_signal = Arc::new(AtomicBool::new(false));
+    let db = Arc::new(
+        DatabaseManager::new(db_path.to_str().expect("Failed to build database path string"))
+            .expect("Failed to initialize SQLite persistence layer"),
+    );
 
+    let stop_signal = Arc::new(AtomicBool::new(false));
     let auth = Arc::new(AuthManager::new());
     let api = Arc::new(ApiManager::new());
     let instance = Arc::new(InstanceManager::new());
@@ -93,40 +96,72 @@ fn main() {
 
     let cfg = config::load_app_config();
     let current_inst = cfg.current_instance.clone();
-    let log_file_path = std::path::Path::new(&current_inst).join("logs").join("latest.log").to_string_lossy().to_string();
-    let crash_dir_path = std::path::Path::new(&current_inst).join("crash-reports").to_string_lossy().to_string();
+    let log_file_path = std::path::Path::new(&current_inst)
+        .join("logs")
+        .join("latest.log")
+        .to_string_lossy()
+        .to_string();
+    let crash_dir_path = std::path::Path::new(&current_inst)
+        .join("crash-reports")
+        .to_string_lossy()
+        .to_string();
 
-    tauri::Builder::default()
+    let stop_signal_monitor = Arc::clone(&stop_signal);
+    let stop_signal_console = Arc::clone(&stop_signal);
+    let stop_signal_crash = Arc::clone(&stop_signal);
+    let stop_signal_rpc = Arc::clone(&stop_signal);
+    let stop_signal_overlay = Arc::clone(&stop_signal);
+    let stop_signal_shutdown = Arc::clone(&stop_signal);
+
+    let monitor_ref = Arc::clone(&monitor);
+    let is_mc_running_ref = Arc::clone(&monitor.is_mc_running);
+
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
         .setup(move |app| {
             let handle = app.handle().clone();
 
-            let h1 = handle.clone();
-            monitor.start_process_monitor(Arc::clone(&stop_signal), current_inst, move |is_running, status| {
-                let _ = h1.emit("updateDaemonStatus", serde_json::json!({ "running": is_running, "status": status }));
-            });
+            let h_daemon = handle.clone();
+            monitor_ref.start_process_monitor(
+                stop_signal_monitor,
+                current_inst,
+                move |is_running, status| {
+                    let _ = h_daemon.emit(
+                        "updateDaemonStatus",
+                        serde_json::json!({ "running": is_running, "status": status }),
+                    );
+                },
+            );
 
-            let h2 = handle.clone();
-            monitor.start_console_stream(Arc::clone(&stop_signal), log_file_path, move |line| {
-                let _ = h2.emit("appendConsoleLine", line);
-            });
+            let h_console = handle.clone();
+            monitor_ref.start_console_stream(
+                stop_signal_console,
+                log_file_path,
+                move |line| {
+                    let _ = h_console.emit("appendConsoleLine", line);
+                },
+            );
 
-            let h3 = handle.clone();
-            CrashService::start_crash_monitor(crash_dir_path, Arc::clone(&stop_signal), move |crash_snippet| {
-                let _ = h3.emit("showCrashAlert", crash_snippet);
-            });
+            let h_crash = handle.clone();
+            CrashService::start_crash_monitor(
+                crash_dir_path,
+                stop_signal_crash,
+                move |crash_snippet| {
+                    let _ = h_crash.emit("showCrashAlert", crash_snippet);
+                },
+            );
 
             RpcService::start_rpc(
                 config::DISCORD_CLIENT_ID,
-                Arc::clone(&db),
-                Arc::clone(&monitor.is_mc_running),
-                Arc::clone(&stop_signal),
+                db,
+                is_mc_running_ref,
+                stop_signal_rpc,
             );
 
-            let h4 = handle.clone();
-            OverlayService::start_hotkey_listener(Arc::clone(&stop_signal), move || {
-                let _ = h4.emit("toggleOverlay", ());
+            let h_overlay = handle.clone();
+            OverlayService::start_hotkey_listener(stop_signal_overlay, move || {
+                let _ = h_overlay.emit("toggleOverlay", ());
             });
 
             tauri::async_runtime::spawn(async move {
@@ -215,8 +250,21 @@ fn main() {
             commands_ext::get_translations,
             commands_ext::window_minimize,
             commands_ext::window_maximize,
-            commands_ext::window_close
+            commands_ext::window_close,
+            commands_ext::check_app_update,
+            commands_ext::perform_app_update
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("Failed to build Tauri execution context");
+
+    app.run(move |_app_handle, event| match event {
+        RunEvent::WindowEvent {
+            event: WindowEvent::CloseRequested { .. },
+            ..
+        }
+        | RunEvent::ExitRequested { .. } => {
+            stop_signal_shutdown.store(true, Ordering::SeqCst);
+        }
+        _ => {}
+    });
 }

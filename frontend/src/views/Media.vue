@@ -81,28 +81,43 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Minimize, ImageOff, Loader, Maximize, X, Trash2, FolderOpen } from 'lucide-vue-next'
-import { api, t, showToast } from '@/store.js'
+import { t, showToast } from '@/store'
+import { invokeSafe, type GenericActionResult } from '@/bridge'
 
-const mediaList = ref([])
-const isLoading = ref(false)
-const isLoadingMore = ref(false)
-const isCompressing = ref(false)
-const hasMore = ref(true)
-const offset = ref(0)
+export interface MediaItem {
+  filename: string
+  thumbnail: string
+  size: number
+  is_png: boolean
+}
+
+interface LightboxState {
+  isOpen: boolean
+  item: MediaItem | null
+  fullImage: string
+  loading: boolean
+}
+
+const mediaList = ref<MediaItem[]>([])
+const isLoading = ref<boolean>(false)
+const isLoadingMore = ref<boolean>(false)
+const isCompressing = ref<boolean>(false)
+const hasMore = ref<boolean>(true)
+const offset = ref<number>(0)
 const limit = 12
 
-const lightbox = ref({
+const lightbox = ref<LightboxState>({
   isOpen: false,
   item: null,
   fullImage: '',
-  loading: false
+  loading: false,
 })
 
-const loadMedia = async (reset = true) => {
-  if (!api.value || (!hasMore.value && !reset)) return
+const loadMedia = async (reset = true): Promise<void> => {
+  if (!hasMore.value && !reset) return
   if (isLoading.value || isLoadingMore.value) return
 
   if (reset) {
@@ -115,7 +130,11 @@ const loadMedia = async (reset = true) => {
   }
 
   try {
-    const data = await api.value.get_media(offset.value, limit)
+    const data = await invokeSafe<MediaItem[]>('get_media', {
+      offset: offset.value,
+      limit,
+    })
+
     if (data && data.length > 0) {
       mediaList.value.push(...data)
       offset.value += limit
@@ -125,16 +144,17 @@ const loadMedia = async (reset = true) => {
     } else {
       hasMore.value = false
     }
-  } catch (e) {
-    showToast(t("Error"), t("Failed to load gallery."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Failed to load gallery.'), 'danger')
+  } finally {
+    isLoading.value = false
+    isLoadingMore.value = false
   }
-
-  isLoading.value = false
-  isLoadingMore.value = false
 }
 
-const handleScroll = (e) => {
-  const el = e.target
+const handleScroll = (e: Event): void => {
+  const el = e.target as HTMLElement
   if (el.scrollHeight - el.scrollTop <= el.clientHeight + 100) {
     if (!isLoadingMore.value && hasMore.value) {
       loadMedia(false)
@@ -142,73 +162,81 @@ const handleScroll = (e) => {
   }
 }
 
-const compressMedia = async () => {
-  if (!api.value || isCompressing.value) return
+const compressMedia = async (): Promise<void> => {
+  if (isCompressing.value) return
   isCompressing.value = true
+
   try {
-    const res = await api.value.compress_media()
+    const res = await invokeSafe<GenericActionResult>('compress_media')
     if (res && res.success) {
-      showToast(t("Success"), res.msg, "success")
-      loadMedia(true)
+      showToast(t('Success'), res.msg, 'success')
+      await loadMedia(true)
     } else {
-      showToast(t("Error"), res?.msg || t("Failed to compress media."), "danger")
+      showToast(t('Error'), res?.msg || t('Failed to compress media.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Backend communication failed."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
+  } finally {
+    isCompressing.value = false
   }
-  isCompressing.value = false
 }
 
-const openFolder = async () => {
-  if (!api.value) return
+const openFolder = async (): Promise<void> => {
   try {
-    await api.value.open_media_folder()
-  } catch (e) {}
+    await invokeSafe<GenericActionResult>('open_media_folder')
+  } catch {
+    showToast(t('Error'), t('Failed to open screenshots folder.'), 'danger')
+  }
 }
 
-const openLightbox = async (item) => {
+const openLightbox = async (item: MediaItem): Promise<void> => {
   lightbox.value.item = item
   lightbox.value.isOpen = true
   lightbox.value.fullImage = ''
   lightbox.value.loading = true
 
-  if (api.value) {
-    try {
-      const b64 = await api.value.get_media_full(item.filename)
-      if (b64 && b64.length > 0) {
-        lightbox.value.fullImage = b64
-      } else {
-        showToast(t("Error"), t("Failed to load full image."), "danger")
-        closeLightbox()
-      }
-    } catch (e) {
-      showToast(t("Error"), t("Network error."), "danger")
+  try {
+    const b64 = await invokeSafe<string>('get_media_full', {
+      filename: item.filename,
+    })
+
+    if (b64 && b64.length > 0) {
+      lightbox.value.fullImage = b64
+    } else {
+      showToast(t('Error'), t('Failed to load full image.'), 'danger')
       closeLightbox()
     }
+  } catch {
+    showToast(t('Error'), t('Network error.'), 'danger')
+    closeLightbox()
+  } finally {
+    lightbox.value.loading = false
   }
-  lightbox.value.loading = false
 }
 
-const closeLightbox = () => {
+const closeLightbox = (): void => {
   lightbox.value.isOpen = false
   lightbox.value.fullImage = ''
   lightbox.value.item = null
 }
 
-const deleteMedia = async () => {
-  if (!api.value || !lightbox.value.item) return
+const deleteMedia = async (): Promise<void> => {
+  if (!lightbox.value.item) return
+  const filename = lightbox.value.item.filename
+
   try {
-    const filename = lightbox.value.item.filename
-    const res = await api.value.delete_media(filename)
+    const res = await invokeSafe<GenericActionResult>('delete_media', { filename })
     if (res && res.success) {
-      showToast(t("Deleted"), res.msg, "success")
-      mediaList.value = mediaList.value.filter(m => m.filename !== filename)
+      showToast(t('Deleted'), res.msg, 'success')
+      mediaList.value = mediaList.value.filter((m) => m.filename !== filename)
       closeLightbox()
     } else {
-      showToast(t("Error"), res?.msg || t("Failed to delete media."), "danger")
+      showToast(t('Error'), res?.msg || t('Failed to delete media.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Backend communication failed."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
   }
 }
 

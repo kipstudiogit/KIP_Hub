@@ -1,28 +1,80 @@
+use std::fs;
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::path::Path;
-use std::fs;
-use tauri::{AppHandle, State, Emitter};
-use serde_json::{json, Value};
 use parking_lot::Mutex;
-use sha1::{Sha1, Digest};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use sha1::{Digest, Sha1};
+use tauri::{AppHandle, Emitter, State};
 
+use crate::api_manager::ApiManager;
+use crate::auth_manager::AuthManager;
+use crate::builder_manager::BuilderManager;
+use crate::cartographer_manager::CartographerManager;
 use crate::config;
 use crate::database::DatabaseManager;
-use crate::auth_manager::AuthManager;
-use crate::api_manager::ApiManager;
-use crate::instance_manager::InstanceManager;
-use crate::mod_manager::ModManager;
 use crate::doctor_manager::DoctorManager;
+use crate::instance_manager::InstanceManager;
+use crate::media_manager::MediaManager;
+use crate::mod_manager::ModManager;
+use crate::monitor_service::MonitorService;
 use crate::shield_manager::ShieldManager;
 use crate::swarm_manager::SwarmManager;
 use crate::tunnel_manager::TunnelManager;
-use crate::world_manager::WorldManager;
-use crate::media_manager::MediaManager;
 use crate::vcs_manager::VCSManager;
-use crate::cartographer_manager::CartographerManager;
-use crate::builder_manager::BuilderManager;
-use crate::monitor_service::MonitorService;
+use crate::world_manager::WorldManager;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaunchPayload {
+    pub version: String,
+    pub loader: String,
+    pub loader_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaunchResult {
+    pub success: bool,
+    pub message: String,
+    pub pid: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenericActionResult {
+    pub success: bool,
+    pub msg: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalModRecord {
+    pub filename: String,
+    pub name: String,
+    pub version: String,
+    pub author: String,
+    pub loaders: Vec<String>,
+    pub disabled: bool,
+    pub icon: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FriendRecord {
+    pub name: String,
+    pub status: String,
+    pub avatar: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoBuildResult {
+    pub success: bool,
+    pub mods: Vec<String>,
+    pub foundation: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeybindResolveResult {
+    pub success: bool,
+    pub changes: i32,
+}
 
 pub struct AppState {
     pub db: Arc<DatabaseManager>,
@@ -45,19 +97,23 @@ pub struct AppState {
 }
 
 #[tauri::command]
-pub async fn kip_login(state: State<'_, AppState>, username: String, password: String) -> Result<Value, String> {
-    let clean_user = username.trim();
+pub async fn kip_login(
+    state: State<'_, AppState>,
+    username: String,
+    password: String,
+) -> Result<Value, String> {
+    let clean_user = username.trim().to_string();
     if clean_user.is_empty() || password.is_empty() {
         return Ok(json!({ "success": false, "msg": "Username and password cannot be empty." }));
     }
 
-    let res = state.api.kip_auth_login(clean_user, &password).await?;
+    let res = state.api.kip_auth_login(&clean_user, &password).await?;
     if res["success"].as_bool().unwrap_or(false) {
         if let Some(token) = res["token"].as_str() {
             config::set_secret("kip_token", token);
         }
         let mut cfg = config::load_app_config();
-        cfg.kip_username = res["username"].as_str().unwrap_or(clean_user).to_string();
+        cfg.kip_username = res["username"].as_str().unwrap_or(&clean_user).to_string();
         config::save_app_config(&cfg);
         *state.cached_kip_profile.lock() = Some(res.clone());
     }
@@ -65,8 +121,13 @@ pub async fn kip_login(state: State<'_, AppState>, username: String, password: S
 }
 
 #[tauri::command]
-pub async fn kip_register(state: State<'_, AppState>, username: String, email: Option<String>, password: String) -> Result<Value, String> {
-    let clean_user = username.trim();
+pub async fn kip_register(
+    state: State<'_, AppState>,
+    username: String,
+    email: Option<String>,
+    password: String,
+) -> Result<Value, String> {
+    let clean_user = username.trim().to_string();
     if clean_user.len() < 3 || clean_user.len() > 24 {
         return Ok(json!({ "success": false, "msg": "Username must be between 3 and 24 characters." }));
     }
@@ -75,13 +136,13 @@ pub async fn kip_register(state: State<'_, AppState>, username: String, email: O
     }
 
     let email_str = email.unwrap_or_default();
-    let res = state.api.kip_auth_register(clean_user, &email_str, &password).await?;
+    let res = state.api.kip_auth_register(&clean_user, &email_str, &password).await?;
     if res["success"].as_bool().unwrap_or(false) {
         if let Some(token) = res["token"].as_str() {
             config::set_secret("kip_token", token);
         }
         let mut cfg = config::load_app_config();
-        cfg.kip_username = res["username"].as_str().unwrap_or(clean_user).to_string();
+        cfg.kip_username = res["username"].as_str().unwrap_or(&clean_user).to_string();
         config::save_app_config(&cfg);
         *state.cached_kip_profile.lock() = Some(res.clone());
     }
@@ -96,7 +157,11 @@ pub fn get_kip_profile(state: State<'_, AppState>) -> Value {
     let token = config::get_secret("kip_token");
     if !token.is_empty() {
         let cfg = config::load_app_config();
-        let name = if !cfg.kip_username.is_empty() { cfg.kip_username } else { "Authenticated User".to_string() };
+        let name = if !cfg.kip_username.is_empty() {
+            cfg.kip_username
+        } else {
+            "Authenticated User".to_string()
+        };
         let profile = json!({ "success": true, "username": name, "token": token });
         *state.cached_kip_profile.lock() = Some(profile.clone());
         return profile;
@@ -197,37 +262,59 @@ pub async fn get_ms_profile(state: State<'_, AppState>) -> Result<Value, String>
 }
 
 #[tauri::command]
-pub async fn get_mc_versions() -> Vec<String> {
+pub async fn get_mc_versions() -> Result<Vec<String>, String> {
     let client = reqwest::Client::new();
-    if let Ok(res) = client.get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json").send().await {
-        if let Ok(data) = res.json::<Value>().await {
-            if let Some(versions) = data["versions"].as_array() {
-                return versions.iter()
-                    .filter(|v| v["type"].as_str() == Some("release"))
-                    .filter_map(|v| v["id"].as_str().map(|s| s.to_string()))
-                    .collect();
+    match client
+        .get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json")
+        .send()
+        .await
+    {
+        Ok(res) => {
+            if let Ok(data) = res.json::<Value>().await {
+                if let Some(versions) = data["versions"].as_array() {
+                    let list: Vec<String> = versions
+                        .iter()
+                        .filter(|v| v["type"].as_str() == Some("release"))
+                        .filter_map(|v| v["id"].as_str().map(|s| s.to_string()))
+                        .collect();
+                    if !list.is_empty() {
+                        return Ok(list);
+                    }
+                }
             }
         }
+        Err(_) => {}
     }
-    vec![
-        "1.21.1".to_string(), "1.21".to_string(), "1.20.4".to_string(), "1.20.1".to_string(),
-        "1.19.4".to_string(), "1.19.2".to_string(), "1.18.2".to_string(), "1.16.5".to_string(),
-        "1.12.2".to_string(), "1.8.9".to_string(),
-    ]
+
+    Ok(vec![
+        "1.21.1".to_string(),
+        "1.21".to_string(),
+        "1.20.4".to_string(),
+        "1.20.1".to_string(),
+        "1.19.4".to_string(),
+        "1.19.2".to_string(),
+        "1.18.2".to_string(),
+        "1.16.5".to_string(),
+        "1.12.2".to_string(),
+        "1.8.9".to_string(),
+    ])
 }
 
 #[tauri::command]
-pub async fn get_loader_versions(loader: String, mc_version: String) -> Vec<String> {
+pub async fn get_loader_versions(loader: String, mc_version: String) -> Result<Vec<String>, String> {
     let client = reqwest::Client::new();
-    match loader.to_lowercase().as_str() {
+    let normalized_loader = loader.to_lowercase();
+
+    match normalized_loader.as_str() {
         "fabric" => {
             let url = format!("https://meta.fabricmc.net/v2/versions/loader/{}", mc_version);
             if let Ok(res) = client.get(&url).send().await {
                 if let Ok(data) = res.json::<Value>().await {
                     if let Some(arr) = data.as_array() {
-                        return arr.iter()
+                        return Ok(arr
+                            .iter()
                             .filter_map(|v| v["loader"]["version"].as_str().map(|s| s.to_string()))
-                            .collect();
+                            .collect());
                     }
                 }
             }
@@ -237,9 +324,10 @@ pub async fn get_loader_versions(loader: String, mc_version: String) -> Vec<Stri
             if let Ok(res) = client.get(&url).send().await {
                 if let Ok(data) = res.json::<Value>().await {
                     if let Some(arr) = data.as_array() {
-                        return arr.iter()
+                        return Ok(arr
+                            .iter()
                             .filter_map(|v| v["loader"]["version"].as_str().map(|s| s.to_string()))
-                            .collect();
+                            .collect());
                     }
                 }
             }
@@ -249,14 +337,15 @@ pub async fn get_loader_versions(loader: String, mc_version: String) -> Vec<Stri
             if let Ok(res) = client.get(url).send().await {
                 if let Ok(data) = res.json::<Value>().await {
                     if let Some(arr) = data["versions"].as_array() {
-                        let mut versions: Vec<String> = arr.iter()
+                        let mut versions: Vec<String> = arr
+                            .iter()
                             .filter_map(|v| v.as_str())
                             .filter(|s| s.starts_with(&mc_version))
                             .map(|s| s.to_string())
                             .collect();
                         versions.sort();
                         versions.reverse();
-                        return versions;
+                        return Ok(versions);
                     }
                 }
             }
@@ -274,13 +363,13 @@ pub async fn get_loader_versions(loader: String, mc_version: String) -> Vec<Stri
                             list.push(lat.to_string());
                         }
                     }
-                    return list;
+                    return Ok(list);
                 }
             }
         }
         _ => {}
     }
-    Vec::new()
+    Ok(Vec::new())
 }
 
 #[tauri::command]
@@ -290,7 +379,7 @@ pub async fn launch_game(
     version: String,
     loader: String,
     loader_version: Option<String>,
-) -> Result<Value, String> {
+) -> Result<LaunchResult, String> {
     let token = config::get_secret("ms_access_token");
     let mut account = json!({
         "name": "Player",
@@ -306,7 +395,11 @@ pub async fn launch_game(
 
     if account["access_token"].as_str() == Some("0") {
         let cfg = config::load_app_config();
-        let off_name = if !cfg.offline_username.trim().is_empty() { cfg.offline_username } else { "Player".to_string() };
+        let off_name = if !cfg.offline_username.trim().is_empty() {
+            cfg.offline_username
+        } else {
+            "Player".to_string()
+        };
         let mut hasher = Sha1::new();
         hasher.update(off_name.as_bytes());
         let hash = hasher.finalize();
@@ -323,97 +416,136 @@ pub async fn launch_game(
     let _ = app.emit("updateLaunchStatus", "Starting Minecraft process...");
 
     let lv = loader_version.unwrap_or_default();
-    match state.instance.launch_game(&version, &loader, &lv, &mc_dir, &account, &app).await {
+    match state
+        .instance
+        .launch_game(&version, &loader, &lv, &mc_dir, &account, &app)
+        .await
+    {
         Ok((msg, pid)) => {
             state.monitor.set_game_pid(pid);
             let _ = app.emit("updateLaunchStatus", "Launched successfully");
-            Ok(json!({ "success": true, "message": msg }))
+            Ok(LaunchResult {
+                success: true,
+                message: msg,
+                pid: Some(pid),
+            })
         }
         Err(e) => {
             let _ = app.emit("updateLaunchStatus", format!("Error: {}", e));
-            Ok(json!({ "success": false, "message": e }))
+            Ok(LaunchResult {
+                success: false,
+                message: e,
+                pid: None,
+            })
         }
     }
 }
 
 #[tauri::command]
-pub fn change_instance(new_dir: String) -> bool {
-    let trimmed = new_dir.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-
-    let p = Path::new(trimmed);
-    if !p.exists() {
-        if fs::create_dir_all(p).is_err() {
+pub async fn change_instance(new_dir: String) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || {
+        let trimmed = new_dir.trim();
+        if trimmed.is_empty() {
             return false;
         }
-    }
 
-    let mut cfg = config::load_app_config();
-    cfg.current_instance = trimmed.to_string();
-    if !cfg.instances.contains(&trimmed.to_string()) {
-        cfg.instances.push(trimmed.to_string());
-    }
-    config::save_app_config(&cfg);
-    config::update_paths(trimmed);
-    true
-}
-
-#[tauri::command]
-pub fn get_local_mods() -> Vec<Value> {
-    let cfg = config::load_app_config();
-    let mods_dir = Path::new(&cfg.current_instance).join("mods");
-    let mut result = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(mods_dir) {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let p = entry.path();
-            let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-            if name.ends_with(".jar") || name.ends_with(".jar.disabled") {
-                let is_disabled = name.ends_with(".disabled");
-                let icon = ModManager::extract_icon(p.to_str().unwrap_or(""));
-                result.push(json!({
-                    "filename": name,
-                    "name": name.replace(".jar", "").replace(".disabled", ""),
-                    "version": "?",
-                    "author": "?",
-                    "loaders": ["fabric"],
-                    "disabled": is_disabled,
-                    "icon": icon
-                }));
+        let p = Path::new(trimmed);
+        if !p.exists() {
+            if fs::create_dir_all(p).is_err() {
+                return false;
             }
         }
-    }
-    result
+
+        let mut cfg = config::load_app_config();
+        cfg.current_instance = trimmed.to_string();
+        if !cfg.instances.contains(&trimmed.to_string()) {
+            cfg.instances.push(trimmed.to_string());
+        }
+        config::save_app_config(&cfg);
+        config::update_paths(trimmed);
+        true
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn toggle_mod(filename: String) -> bool {
-    let safe_filename = match Path::new(&filename).file_name() {
-        Some(f) => f.to_string_lossy().to_string(),
-        None => return false,
-    };
+pub async fn get_local_mods() -> Result<Vec<LocalModRecord>, String> {
+    tokio::task::spawn_blocking(|| {
+        let cfg = config::load_app_config();
+        let mods_dir = Path::new(&cfg.current_instance).join("mods");
+        let mut result = Vec::new();
 
-    let cfg = config::load_app_config();
-    let filepath = Path::new(&cfg.current_instance).join("mods").join(safe_filename);
-    ModManager::toggle_mod(filepath.to_str().unwrap_or(""))
+        if let Ok(entries) = fs::read_dir(mods_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let p = entry.path();
+                let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                if name.ends_with(".jar") || name.ends_with(".jar.disabled") {
+                    let is_disabled = name.ends_with(".disabled");
+                    let icon = ModManager::extract_icon(p.to_str().unwrap_or(""));
+                    result.push(LocalModRecord {
+                        filename: name.clone(),
+                        name: name.replace(".jar", "").replace(".disabled", ""),
+                        version: "?".to_string(),
+                        author: "?".to_string(),
+                        loaders: vec!["fabric".to_string()],
+                        disabled: is_disabled,
+                        icon,
+                    });
+                }
+            }
+        }
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn delete_mod(filename: String) -> Value {
-    let safe_filename = match Path::new(&filename).file_name() {
-        Some(f) => f.to_string_lossy().to_string(),
-        None => return json!({ "success": false, "msg": "Invalid filename." }),
-    };
+pub async fn toggle_mod(filename: String) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || {
+        let safe_filename = match Path::new(&filename).file_name() {
+            Some(f) => f.to_string_lossy().to_string(),
+            None => return false,
+        };
 
-    let cfg = config::load_app_config();
-    let filepath = Path::new(&cfg.current_instance).join("mods").join(safe_filename);
-    if ModManager::delete_mod(filepath.to_str().unwrap_or("")) {
-        json!({ "success": true, "msg": "Mod deleted successfully." })
-    } else {
-        json!({ "success": false, "msg": "File not found or failed to delete." })
-    }
+        let cfg = config::load_app_config();
+        let filepath = Path::new(&cfg.current_instance).join("mods").join(safe_filename);
+        ModManager::toggle_mod(filepath.to_str().unwrap_or(""))
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_mod(filename: String) -> Result<GenericActionResult, String> {
+    tokio::task::spawn_blocking(move || {
+        let safe_filename = match Path::new(&filename).file_name() {
+            Some(f) => f.to_string_lossy().to_string(),
+            None => {
+                return GenericActionResult {
+                    success: false,
+                    msg: "Invalid filename.".to_string(),
+                }
+            }
+        };
+
+        let cfg = config::load_app_config();
+        let filepath = Path::new(&cfg.current_instance).join("mods").join(safe_filename);
+        if ModManager::delete_mod(filepath.to_str().unwrap_or("")) {
+            GenericActionResult {
+                success: true,
+                msg: "Mod deleted successfully.".to_string(),
+            }
+        } else {
+            GenericActionResult {
+                success: false,
+                msg: "File not found or failed to delete.".to_string(),
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -448,7 +580,7 @@ pub async fn search_store(
             "success": false,
             "hits": [],
             "msg": err_msg
-        }))
+        })),
     }
 }
 
@@ -515,27 +647,48 @@ pub async fn generate_auto_build(
     prompt: String,
     mc_version: String,
     loader: String,
-) -> Result<Value, String> {
+) -> Result<AutoBuildResult, String> {
     let mods = state.builder.generate_mod_list(&prompt, &mc_version, &loader).await?;
-    let foundation = state.builder.get_foundation_mods(&loader);
-    Ok(json!({
-        "success": true,
-        "mods": mods,
-        "foundation": foundation
-    }))
+    let foundation = state
+        .builder
+        .get_foundation_mods(&loader)
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    Ok(AutoBuildResult {
+        success: true,
+        mods,
+        foundation,
+    })
 }
 
 #[tauri::command]
-pub fn resolve_keybinds(state: State<'_, AppState>) -> Value {
-    let cfg = config::load_app_config();
-    let changes = state.builder.resolve_keybinds(&cfg.current_instance);
-    json!({ "success": true, "changes": changes })
+pub async fn resolve_keybinds(state: State<'_, AppState>) -> Result<KeybindResolveResult, String> {
+    let builder = state.builder.clone();
+    tokio::task::spawn_blocking(move || {
+        let cfg = config::load_app_config();
+        let changes = builder.resolve_keybinds(&cfg.current_instance);
+        KeybindResolveResult {
+            success: true,
+            changes,
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn swarm_seed_start(state: State<'_, AppState>, target_folder: String) -> Result<Value, String> {
+pub async fn swarm_seed_start(
+    state: State<'_, AppState>,
+    target_folder: String,
+) -> Result<Value, String> {
     let cfg = config::load_app_config();
-    let safe_folder = Path::new(&target_folder).file_name().unwrap_or_default().to_string_lossy().to_string();
+    let safe_folder = Path::new(&target_folder)
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let target_dir = Path::new(&cfg.current_instance).join(safe_folder);
     state.swarm.start_seeding(target_dir.to_str().unwrap_or(""))
 }
@@ -552,38 +705,72 @@ pub fn swarm_seed_status(state: State<'_, AppState>) -> Vec<Value> {
 }
 
 #[tauri::command]
-pub fn get_friends(state: State<'_, AppState>) -> Vec<Value> {
-    let names = state.db.get_friends();
-    names.into_iter().map(|f| {
-        json!({
-            "name": f,
-            "status": "offline",
-            "avatar": format!("https://api.mineatar.io/face/{}?scale=10", f)
-        })
-    }).collect()
+pub async fn get_friends(state: State<'_, AppState>) -> Result<Vec<FriendRecord>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let names = db.get_friends();
+        names
+            .into_iter()
+            .map(|f| FriendRecord {
+                avatar: format!("https://api.mineatar.io/face/{}?scale=10", f),
+                status: "offline".to_string(),
+                name: f,
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn add_friend(state: State<'_, AppState>, name: String) -> Value {
-    let clean = name.trim();
-    if clean.len() < 3 || clean.len() > 16 || !clean.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return json!({ "success": false, "msg": "Invalid nickname. Must be 3-16 characters and contain only letters, numbers, or underscores." });
-    }
-    if state.db.add_friend(clean) {
-        json!({ "success": true, "msg": format!("Added {} to friends.", clean) })
-    } else {
-        json!({ "success": false, "msg": "Friend already exists." })
-    }
+pub async fn add_friend(state: State<'_, AppState>, name: String) -> Result<GenericActionResult, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let clean = name.trim();
+        if clean.len() < 3
+            || clean.len() > 16
+            || !clean.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return GenericActionResult {
+                success: false,
+                msg: "Invalid nickname. Must be 3-16 characters and contain only letters, numbers, or underscores.".to_string(),
+            };
+        }
+        if db.add_friend(clean) {
+            GenericActionResult {
+                success: true,
+                msg: format!("Added {} to friends.", clean),
+            }
+        } else {
+            GenericActionResult {
+                success: false,
+                msg: "Friend already exists.".to_string(),
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn remove_friend(state: State<'_, AppState>, name: String) -> Value {
-    let clean = name.trim();
-    if state.db.remove_friend(clean) {
-        json!({ "success": true, "msg": format!("Removed {}.", clean) })
-    } else {
-        json!({ "success": false, "msg": "Friend not found." })
-    }
+pub async fn remove_friend(state: State<'_, AppState>, name: String) -> Result<GenericActionResult, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let clean = name.trim();
+        if db.remove_friend(clean) {
+            GenericActionResult {
+                success: true,
+                msg: format!("Removed {}.", clean),
+            }
+        } else {
+            GenericActionResult {
+                success: false,
+                msg: "Friend not found.".to_string(),
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -601,16 +788,32 @@ pub fn stop_tunnel(state: State<'_, AppState>) -> bool {
 }
 
 #[tauri::command]
-pub fn deploy_docker_server(state: State<'_, AppState>, core: String, version: String, port: String) -> Value {
-    let cfg = config::load_app_config();
-    match state.instance.deploy_docker_server(&core, &version, &port, &cfg.current_instance) {
-        Ok(msg) => json!({ "success": true, "msg": msg }),
-        Err(e) => json!({ "success": false, "msg": e }),
-    }
+pub async fn deploy_docker_server(
+    state: State<'_, AppState>,
+    core: String,
+    version: String,
+    port: String,
+) -> Result<GenericActionResult, String> {
+    let instance = state.instance.clone();
+    tokio::task::spawn_blocking(move || {
+        let cfg = config::load_app_config();
+        match instance
+            .deploy_docker_server(&core, &version, &port, &cfg.current_instance)
+        {
+            Ok(msg) => GenericActionResult { success: true, msg },
+            Err(e) => GenericActionResult { success: false, msg: e },
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn ptero_connect(state: State<'_, AppState>, url: String, key: String) -> Result<Value, String> {
+pub async fn ptero_connect(
+    state: State<'_, AppState>,
+    url: String,
+    key: String,
+) -> Result<Value, String> {
     let clean_url = url.trim().trim_end_matches('/').to_string();
     if clean_url.is_empty() || key.trim().is_empty() {
         return Ok(json!({ "success": false, "msg": "Panel URL and API key cannot be empty." }));
@@ -625,9 +828,16 @@ pub async fn ptero_connect(state: State<'_, AppState>, url: String, key: String)
 }
 
 #[tauri::command]
-pub async fn ptero_action(state: State<'_, AppState>, action: String, server_id: String) -> Result<Value, String> {
+pub async fn ptero_action(
+    state: State<'_, AppState>,
+    action: String,
+    server_id: String,
+) -> Result<Value, String> {
     let cfg = config::load_app_config();
     let key = config::get_secret("ptero_key");
-    let ok = state.api.send_ptero_power_action(&cfg.ptero_url, &server_id, &action, &key).await?;
+    let ok = state
+        .api
+        .send_ptero_power_action(&cfg.ptero_url, &server_id, &action, &key)
+        .await?;
     Ok(json!({ "success": ok }))
 }

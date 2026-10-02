@@ -23,7 +23,7 @@
 
         <textarea v-model="state.aiInputText" class="kip-input h-40 font-mono text-xs resize-none custom-scroll relative z-10 mb-5 shadow-inner focus:border-purple-500" :placeholder="t('Paste crash log snippet here...')"></textarea>
 
-        <button @click="askAI" :disabled="isAiLoading || !state.aiInputText" class="kip-btn-primary py-4 bg-purple-500 hover:bg-purple-400 text-white border-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.3)] relative z-10 shrink-0 text-base">
+        <button @click="askAI" :disabled="isAiLoading || !state.aiInputText.trim()" class="kip-btn-primary py-4 bg-purple-500 hover:bg-purple-400 text-white border-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.3)] relative z-10 shrink-0 text-base">
           <Loader v-if="isAiLoading" class="w-5 h-5 animate-spin" />
           <BrainCircuit v-else class="w-5 h-5" />
           {{ isAiLoading ? t('Analyzing...') : t('Analyze') }}
@@ -87,63 +87,97 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Sparkles, Send, Loader, Bug, BrainCircuit, FileTerminal, Cpu } from 'lucide-vue-next'
-import { state, api, t, showToast, sanitizeHTML } from '@/store.js'
+import { state, t, showToast, sanitizeHTML } from '@/store'
+import { invokeSafe } from '@/bridge'
 
-const isAiLoading = ref(false)
-const aiResponseHtml = ref(`<div class="h-full flex flex-col items-center justify-center text-white/30 gap-4"><svg class="w-12 h-12 opacity-50" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg><p class="text-sm font-medium tracking-wide">Waiting for input...</p></div>`)
+interface SysInfoParsed {
+  os: string
+  cpu: string
+  ram: string
+  java: string
+}
 
-const bugInputText = ref('')
-const isBugSending = ref(false)
-const sysInfo = ref({ os: 'Loading...', cpu: 'Loading...', ram: '...', java: '...' })
+interface AiAnalysisResult {
+  success: boolean
+  answer: string
+}
 
-const loadSysInfo = async () => {
-  if (!api.value) return
+const isAiLoading = ref<boolean>(false)
+const aiResponseHtml = ref<string>(
+  '<div class="h-full flex flex-col items-center justify-center text-white/30 gap-4"><svg class="w-12 h-12 opacity-50" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg><p class="text-sm font-medium tracking-wide">Waiting for input...</p></div>'
+)
+
+const bugInputText = ref<string>('')
+const isBugSending = ref<boolean>(false)
+const sysInfo = ref<SysInfoParsed>({
+  os: 'Loading...',
+  cpu: 'Loading...',
+  ram: '...',
+  java: '...',
+})
+
+const loadSysInfo = async (): Promise<void> => {
   try {
-    const rawData = await api.value.get_sys_info()
+    const rawData = await invokeSafe<string>('get_sys_info')
     const lines = rawData.split('\n')
-    lines.forEach(line => {
+    lines.forEach((line) => {
       if (line.startsWith('OS:')) sysInfo.value.os = line.replace('OS:', '').trim()
       if (line.startsWith('CPU:')) sysInfo.value.cpu = line.replace('CPU:', '').trim()
       if (line.startsWith('RAM:')) sysInfo.value.ram = line.replace('RAM:', '').replace('GB', '').trim()
       if (line.startsWith('Java:')) sysInfo.value.java = line.replace('Java:', '').trim()
     })
-  } catch (e) {}
-}
-
-const fetchLatestLog = async () => {
-  if (!api.value) return
-  try {
-    const logData = await api.value.get_console_logs()
-    if (logData) {
-      state.aiInputText = logData
-      showToast(t("Success"), t("Loaded the latest log tail."), "success")
-    } else {
-      showToast(t("Error"), t("Failed to load log file."), "danger")
-    }
-  } catch (e) {
-    showToast(t("Error"), t("Failed to communicate with backend."), "danger")
+  } catch {
+    // Retains loading state on IPC failure
   }
 }
 
-const askAI = async () => {
-  if (!state.aiInputText || !state.aiInputText.trim() || !api.value) return
+const fetchLatestLog = async (): Promise<void> => {
+  try {
+    const logData = await invokeSafe<string>('get_console_logs')
+    if (logData) {
+      state.aiInputText = logData
+      showToast(t('Success'), t('Loaded the latest log tail.'), 'success')
+    } else {
+      showToast(t('Error'), t('Failed to load log file.'), 'danger')
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Failed to communicate with backend.'), 'danger')
+  }
+}
 
-  if (!state.settings.ai_api_key && !state.settings.openai_api_key && !state.settings.anthropic_api_key && state.settings.ai_provider !== 'ollama') {
-    showToast(t("Error"), t("AI API Key is required. Set it in Settings."), "danger")
+const askAI = async (): Promise<void> => {
+  const cleanInput = state.aiInputText.trim()
+  if (!cleanInput) return
+
+  if (
+    !state.settings.ai_api_key &&
+    !state.settings.openai_api_key &&
+    !state.settings.anthropic_api_key &&
+    state.settings.ai_provider !== 'ollama'
+  ) {
+    showToast(t('Error'), t('AI API Key is required. Set it in Settings.'), 'danger')
     return
   }
 
   isAiLoading.value = true
-  aiResponseHtml.value = `<div class="h-full flex items-center justify-center gap-4 text-purple-400 font-bold animate-pulse tracking-wide"><svg class="w-8 h-8" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg> Neural Core is thinking...</div>`
+  aiResponseHtml.value =
+    '<div class="h-full flex items-center justify-center gap-4 text-purple-400 font-bold animate-pulse tracking-wide"><svg class="w-8 h-8" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg> Neural Core is thinking...</div>'
 
   try {
-    const res = await api.value.analyze_crash_ai(state.aiInputText.trim())
+    const res = await invokeSafe<AiAnalysisResult>('analyze_crash_ai', {
+      logSnippet: cleanInput,
+    })
+
     if (res && res.success) {
-      let safeText = sanitizeHTML(res.answer)
-      let htmlAns = safeText.replace(/\*\*(.*?)\*\*/g, '<span class="text-white font-extrabold">$1</span>').replace(/\n/g, '<br>')
+      const safeText = sanitizeHTML(res.answer)
+      const htmlAns = safeText
+        .replace(/\*\*(.*?)\*\*/g, '<span class="text-white font-extrabold">$1</span>')
+        .replace(/\n/g, '<br>')
+
       aiResponseHtml.value = `
         <div class="flex items-start gap-4">
           <div class="p-2.5 bg-purple-500/20 border border-purple-500/30 rounded-xl shrink-0">
@@ -154,27 +188,34 @@ const askAI = async () => {
     } else {
       aiResponseHtml.value = `<div class="text-red-400 border border-red-500/30 bg-red-500/10 p-5 rounded-2xl font-bold flex items-center gap-3"><svg class="w-6 h-6 shrink-0" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Error: ${sanitizeHTML(res?.answer || 'Failed to analyze.')}</div>`
     }
-  } catch (e) {
+  } catch {
     aiResponseHtml.value = `<div class="text-red-400 border border-red-500/30 bg-red-500/10 p-5 rounded-2xl font-bold">Backend Error</div>`
+  } finally {
+    isAiLoading.value = false
   }
-  isAiLoading.value = false
 }
 
-const sendBugReport = async () => {
-  if (!bugInputText.value.trim() || !api.value || isBugSending.value) return
+const sendBugReport = async (): Promise<void> => {
+  const cleanReport = bugInputText.value.trim()
+  if (!cleanReport || isBugSending.value) return
   isBugSending.value = true
+
   try {
-    const success = await api.value.send_bug_report(bugInputText.value.trim())
+    const success = await invokeSafe<boolean>('send_bug_report', {
+      reportText: cleanReport,
+    })
     if (success) {
-      showToast(t("Sent"), t("Thank you for your feedback!"), "success")
-      bugInputText.value = ""
+      showToast(t('Sent'), t('Thank you for your feedback!'), 'success')
+      bugInputText.value = ''
     } else {
-      showToast(t("Error"), t("Failed to send report."), "danger")
+      showToast(t('Error'), t('Failed to send report.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Failed to send report."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Failed to send report.'), 'danger')
+  } finally {
+    isBugSending.value = false
   }
-  isBugSending.value = false
 }
 
 onMounted(() => {

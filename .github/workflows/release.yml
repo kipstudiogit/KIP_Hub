@@ -55,7 +55,16 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'K.I.P. Hub ${{ github.ref_name }}'
-          releaseBody: 'Release ${{ github.ref_name }} of K.I.P. Hub.'
+          releaseBody: |
+            ### K.I.P. Hub ${{ github.ref_name }}
+            
+            This release is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
+            
+            #### Highlights:
+            - Full TypeScript 5+ & Tauri v2.12 async architecture.
+            - Low-latency audio DSP engine & WebRTC voice channels.
+            - Malware heuristic shield & automatic crash dump analysis.
+            - Multiplatform binaries (Windows, Linux, macOS) with cryptographic update signing.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

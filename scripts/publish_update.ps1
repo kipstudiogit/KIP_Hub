@@ -9,7 +9,7 @@ Set-Location -Path "$PSScriptRoot\.."
 
 $CleanVersion = $Version.TrimStart("v").Trim()
 if ($CleanVersion -notmatch "^\d+\.\d+\.\d+$") {
-    Write-Error "Version must follow semver format X.Y.Z (e.g. 1.5.7)"
+    Write-Error "Version must follow semver format X.Y.Z (e.g. 1.5.8 or 1.6.0)"
 }
 
 $RootPkg = "package.json"
@@ -39,11 +39,22 @@ if (Test-Path $ConfigRs) {
 
 Write-Host "Updated version to $CleanVersion across all configuration files."
 
-git add package.json frontend\package.json src-tauri\Cargo.toml src-tauri\tauri.conf.json src-tauri\src\config.rs
+git add package.json frontend\package.json src-tauri\Cargo.toml src-tauri\tauri.conf.json src-tauri\src\config.rs src-tauri\src\locales.rs frontend\src\App.vue frontend\src\views\Settings.vue LICENSE
 
 $Tag = "v$CleanVersion"
-git commit -m "Release $Tag"
+git commit -m "Release $Tag (GPL-3.0)"
 git tag -a $Tag -m "Release $Tag" -f
-git push origin main --tags -f
 
-Write-Host "Release $Tag successfully pushed. GitHub Actions build started."
+$Branch = (git rev-parse --abbrev-ref HEAD).Trim()
+if ($Branch -eq "master") {
+    git branch -M main
+    $Branch = "main"
+}
+
+Write-Host "Pushing release commit and tag $Tag to origin/$Branch..."
+git push origin $Branch --tags -f
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Git push failed. Ensure origin remote credentials and permissions are valid."
+}
+
+Write-Host "Release $Tag successfully triggered on GitHub Actions!"

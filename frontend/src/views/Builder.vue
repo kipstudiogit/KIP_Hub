@@ -21,7 +21,7 @@
             </div>
             <transition name="fade">
               <div v-if="activeDropdown === 'loader'" class="absolute top-full left-0 w-full mt-2 bg-[#121214]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden py-2 z-50">
-                <div v-for="l in ['fabric', 'forge', 'neoforge', 'quilt']" :key="l" @click="builderData.loader = l; activeDropdown = null" class="px-5 py-3 hover:bg-white/5 cursor-pointer transition font-bold text-sm uppercase tracking-wider" :class="builderData.loader === l ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/70'">
+                <div v-for="l in (['fabric', 'forge', 'neoforge', 'quilt'] as const)" :key="l" @click="builderData.loader = l; activeDropdown = null" class="px-5 py-3 hover:bg-white/5 cursor-pointer transition font-bold text-sm uppercase tracking-wider" :class="builderData.loader === l ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/70'">
                   {{ l }}
                 </div>
               </div>
@@ -82,121 +82,180 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { Wand2, Cpu, Sparkles, Loader, Keyboard, ChevronDown, Wrench } from 'lucide-vue-next'
-import { state, api, t, showToast } from '@/store.js'
+import { state, t, showToast } from '@/store'
+import {
+  bridge,
+  invokeSafe,
+  type AutoBuildResult,
+  type KeybindResolveResult,
+  type StoreDetailsResponse,
+  type StoreItemFile,
+} from '@/bridge'
 
-const activeDropdown = ref(null)
-const isResolvingKeybinds = ref(false)
+type SupportedLoader = 'fabric' | 'forge' | 'neoforge' | 'quilt'
 
-const builderData = ref({
+interface BuilderFormState {
+  prompt: string
+  mc_version: string
+  loader: SupportedLoader
+  isBuilding: boolean
+  status: string
+  progress: number
+}
+
+const activeDropdown = ref<'loader' | 'version' | null>(null)
+const isResolvingKeybinds = ref<boolean>(false)
+
+const builderData = ref<BuilderFormState>({
   prompt: '',
   mc_version: '',
   loader: 'fabric',
   isBuilding: false,
   status: '',
-  progress: 0
+  progress: 0,
 })
 
-const closeDropdowns = (e) => {
-  if (!e.target.closest('.custom-dropdown')) {
+const closeDropdowns = (e: MouseEvent): void => {
+  const target = e.target as HTMLElement | null
+  if (!target || !target.closest('.custom-dropdown')) {
     activeDropdown.value = null
   }
 }
 
-const generateAutoBuild = async () => {
-  if (!builderData.value.prompt.trim() || !builderData.value.mc_version) return
+const generateAutoBuild = async (): Promise<void> => {
+  const cleanPrompt = builderData.value.prompt.trim()
+  if (!cleanPrompt || !builderData.value.mc_version) return
 
-  if (!state.settings.ai_api_key && !state.settings.openai_api_key && !state.settings.anthropic_api_key && state.settings.ai_provider !== 'ollama') {
-    showToast(t("Error"), t("AI API Key is required. Set it in Settings."), "danger")
+  if (
+    !state.settings.ai_api_key &&
+    !state.settings.openai_api_key &&
+    !state.settings.anthropic_api_key &&
+    state.settings.ai_provider !== 'ollama'
+  ) {
+    showToast(t('Error'), t('AI API Key is required. Set it in Settings.'), 'danger')
     return
   }
 
   builderData.value.isBuilding = true
   builderData.value.progress = 5
-  builderData.value.status = t("Consulting Neural Core...")
+  builderData.value.status = t('Consulting Neural Core...')
 
   try {
-    const res = await api.value.generate_auto_build(builderData.value.prompt.trim(), builderData.value.mc_version, builderData.value.loader)
+    const res: AutoBuildResult = await bridge.generateAutoBuild(
+      cleanPrompt,
+      builderData.value.mc_version,
+      builderData.value.loader
+    )
 
     if (res && res.success) {
       const rawSlugs = [...(res.foundation || []), ...(res.mods || [])]
-      const allSlugs = [...new Set(rawSlugs)]
-        .map(s => typeof s === 'string' ? s.trim().toLowerCase() : '')
-        .filter(s => s.length > 0)
+      const allSlugs = Array.from(new Set(rawSlugs))
+        .map((s) => (typeof s === 'string' ? s.trim().toLowerCase() : ''))
+        .filter((s) => s.length > 0)
 
       let successCount = 0
 
       for (let i = 0; i < allSlugs.length; i++) {
         const slug = allSlugs[i]
-        builderData.value.status = `${t('Resolving')} ${slug}... (${i+1}/${allSlugs.length})`
-        builderData.value.progress = 10 + ((i / allSlugs.length) * 80)
+        if (!slug) continue
+
+        builderData.value.status = `${t('Resolving')} ${slug}... (${i + 1}/${allSlugs.length})`
+        builderData.value.progress = 10 + (i / allSlugs.length) * 80
 
         try {
-          const versions = await api.value.get_store_full_details('modrinth', slug, builderData.value.loader, builderData.value.mc_version)
+          const versions = await invokeSafe<StoreDetailsResponse>('get_store_full_details', {
+            provider: 'modrinth',
+            projectId: slug,
+            loader: builderData.value.loader,
+            gameVersion: builderData.value.mc_version,
+          })
+
           if (versions && versions.success && versions.versions && versions.versions.length > 0) {
             const targetVer = versions.versions[0]
-
             if (targetVer && targetVer.files && targetVer.files.length > 0) {
-              const file = targetVer.files.find(f => f.primary) || targetVer.files[0]
-              builderData.value.status = `${t('Downloading')} ${file.filename}...`
-              await api.value.download_specific_file(file.url, file.filename, 'mod')
-              successCount++
+              const file = targetVer.files.find((f: StoreItemFile) => f.primary) || targetVer.files[0]
+              if (file) {
+                builderData.value.status = `${t('Downloading')} ${file.filename}...`
+                await invokeSafe<boolean>('download_specific_file', {
+                  url: file.url,
+                  filename: file.filename,
+                  projectType: 'mod',
+                })
+                successCount++
+              }
             }
           }
-        } catch (err) {}
+        } catch {
+          // Ignored
+        }
       }
 
       builderData.value.progress = 100
-      builderData.value.status = t("Finalizing Modpack...")
-
-      showToast(t("Build Complete"), `${t('Successfully integrated')} ${successCount} ${t('core modules.')}`, "success")
+      builderData.value.status = t('Finalizing Modpack...')
+      showToast(
+        t('Build Complete'),
+        `${t('Successfully integrated')} ${successCount} ${t('core modules.')}`,
+        'success'
+      )
     } else {
-      showToast(t("Build Failed"), res?.msg || t("AI generation failed."), "danger")
+      showToast(t('Build Failed'), t('AI generation failed.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Backend communication failed."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
+  } finally {
+    setTimeout(() => {
+      builderData.value.isBuilding = false
+      builderData.value.progress = 0
+      builderData.value.status = ''
+    }, 1000)
   }
-
-  setTimeout(() => {
-    builderData.value.isBuilding = false
-    builderData.value.progress = 0
-    builderData.value.status = ''
-  }, 1000)
 }
 
-const resolveKeybinds = async () => {
+const resolveKeybinds = async (): Promise<void> => {
   if (isResolvingKeybinds.value) return
   isResolvingKeybinds.value = true
+
   try {
-    const res = await api.value.resolve_keybinds()
+    const res: KeybindResolveResult = await bridge.resolveKeybinds()
     if (res && res.success) {
       if (res.changes > 0) {
-        showToast(t("Resolved"), `${t('Fixed')} ${res.changes} ${t('keybind conflicts.')}`, "success")
+        showToast(
+          t('Resolved'),
+          `${t('Fixed')} ${res.changes} ${t('keybind conflicts.')}`,
+          'success'
+        )
       } else {
-        showToast(t("Clean"), t("No keybind conflicts detected."), "success")
+        showToast(t('Clean'), t('No keybind conflicts detected.'), 'success')
       }
     } else {
-      showToast(t("Error"), res?.msg || t("Failed to resolve keybinds."), "danger")
+      showToast(t('Error'), t('Failed to resolve keybinds.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Backend communication failed."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
+  } finally {
+    isResolvingKeybinds.value = false
   }
-  isResolvingKeybinds.value = false
 }
 
 onMounted(async () => {
   window.addEventListener('click', closeDropdowns)
-  if (state.mcVersions.length === 0 && api.value) {
+
+  if (state.mcVersions.length === 0) {
     try {
-      state.mcVersions = await api.value.get_mc_versions()
-      if (state.mcVersions.length > 0 && !state.mcVersions[0].includes("Error")) {
-        builderData.value.mc_version = state.mcVersions[0]
+      state.mcVersions = await bridge.getMcVersions()
+      if (state.mcVersions.length > 0 && !state.mcVersions[0]?.includes('Error')) {
+        builderData.value.mc_version = state.mcVersions[0] || ''
       }
-    } catch(e) {}
+    } catch {
+      // Ignored
+    }
   } else if (!builderData.value.mc_version && state.mcVersions.length > 0) {
-    builderData.value.mc_version = state.mcVersions[0]
+    builderData.value.mc_version = state.mcVersions[0] || ''
   }
 })
 

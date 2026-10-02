@@ -153,16 +153,16 @@
       <div v-if="storeDetailsModal.isOpen" class="fixed inset-0 bg-black/80 backdrop-blur-xl z-[200] flex items-center justify-center p-10 cursor-default" @click.self="storeDetailsModal.isOpen = false">
         <div class="kip-card p-0 w-full max-w-4xl flex flex-col h-[85vh] overflow-hidden relative">
           <div class="flex justify-between items-start p-8 border-b border-white/5 bg-black/40 shrink-0 relative overflow-hidden">
-            <div class="absolute -top-32 -right-32 w-96 h-96 blur-[100px] rounded-full pointer-events-none transition-all duration-1000" :class="storeDetailsModal.item.provider === 'curseforge' ? 'bg-orange-500/20' : 'bg-emerald-500/20'"></div>
+            <div class="absolute -top-32 -right-32 w-96 h-96 blur-[100px] rounded-full pointer-events-none transition-all duration-1000" :class="storeDetailsModal.item?.provider === 'curseforge' ? 'bg-orange-500/20' : 'bg-emerald-500/20'"></div>
 
             <div class="flex items-center gap-5 relative z-10">
-              <img :src="storeDetailsModal.item.icon_url || fallbackModIcon" class="w-16 h-16 rounded-2xl bg-black/40 p-0.5 object-contain border border-white/10 shadow-lg">
+              <img :src="storeDetailsModal.item?.icon_url || fallbackModIcon" class="w-16 h-16 rounded-2xl bg-black/40 p-0.5 object-contain border border-white/10 shadow-lg">
               <div>
-                <h3 class="text-3xl font-extrabold text-white mb-1">{{ storeDetailsModal.item.title }}</h3>
-                <p class="text-sm text-white/50 mb-3">{{ t('by') }} <span class="text-white/80 font-medium">{{ storeDetailsModal.item.author }}</span></p>
+                <h3 class="text-3xl font-extrabold text-white mb-1">{{ storeDetailsModal.item?.title }}</h3>
+                <p class="text-sm text-white/50 mb-3">{{ t('by') }} <span class="text-white/80 font-medium">{{ storeDetailsModal.item?.author }}</span></p>
                 <div class="flex gap-4">
-                  <span class="flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-lg border border-emerald-500/20"><Download class="w-3 h-3" /> {{ formatNumber(storeDetailsModal.item.downloads) }}</span>
-                  <span class="flex items-center gap-1.5 text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/20"><Star class="w-3 h-3" /> {{ formatNumber(storeDetailsModal.item.follows) }}</span>
+                  <span class="flex items-center gap-1.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-lg border border-emerald-500/20"><Download class="w-3 h-3" /> {{ formatNumber(storeDetailsModal.item?.downloads || 0) }}</span>
+                  <span class="flex items-center gap-1.5 text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/20"><Star class="w-3 h-3" /> {{ formatNumber(storeDetailsModal.item?.follows || 0) }}</span>
                 </div>
               </div>
             </div>
@@ -180,7 +180,7 @@
 
           <div class="flex-1 overflow-y-auto custom-scroll bg-[#050505]/80 flex flex-col min-h-0 relative z-10">
             <div v-show="storeDetailsModal.tab === 'description'">
-              <div v-if="storeDetailsModal.itemData && storeDetailsModal.itemData.gallery && storeDetailsModal.itemData.gallery.length > 0" class="p-8 pb-0 flex gap-4 overflow-x-auto custom-scroll snap-x shrink-0">
+              <div v-if="storeDetailsModal.itemData?.gallery && storeDetailsModal.itemData.gallery.length > 0" class="p-8 pb-0 flex gap-4 overflow-x-auto custom-scroll snap-x shrink-0">
                 <img v-for="img in storeDetailsModal.itemData.gallery" :key="img.url" :src="img.url" class="h-64 object-cover rounded-xl border border-white/10 snap-center shrink-0 shadow-lg cursor-pointer hover:opacity-80 transition" @click="openUrl(img.url)" :title="img.title || ''">
               </div>
               <div class="p-8 markdown-body text-white/80" v-html="storeDetailsModal.html"></div>
@@ -212,7 +212,7 @@
 
           <div v-show="storeDetailsModal.tab === 'description'" class="p-6 border-t border-white/5 bg-black/40 shrink-0 flex justify-end gap-4 relative z-20">
             <button @click="storeDetailsModal.isOpen = false" class="kip-btn-ghost px-6 py-3 text-white/70 hover:text-white">{{ t('Close') }}</button>
-            <button @click="downloadStoreItem(storeDetailsModal.item)" :disabled="storeDetailsModal.item.downloading" class="kip-btn-primary px-8 py-3">
+            <button v-if="storeDetailsModal.item" @click="downloadStoreItem(storeDetailsModal.item)" :disabled="storeDetailsModal.item.downloading" class="kip-btn-primary px-8 py-3">
               <Loader v-if="storeDetailsModal.item.downloading" class="w-5 h-5 animate-spin" />
               <DownloadCloud v-else-if="!storeDetailsModal.item.downloaded" class="w-5 h-5" />
               <CheckCircle v-else class="w-5 h-5" />
@@ -225,77 +225,180 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { marked } from 'marked'
-import { X, Search, SearchX, Download, Loader, FileText, Layers, FileCode, ChevronDown, User, DownloadCloud, CheckCircle, Star } from 'lucide-vue-next'
-import { state, api, t, showToast, sanitizeHTML } from '@/store.js'
+import {
+  X,
+  Search,
+  SearchX,
+  Download,
+  Loader,
+  FileText,
+  Layers,
+  FileCode,
+  ChevronDown,
+  User,
+  DownloadCloud,
+  CheckCircle,
+  Star,
+} from 'lucide-vue-next'
+import { state, t, showToast, sanitizeHTML } from '@/store'
+import { invokeSafe, bridge } from '@/bridge'
 
-const storeData = ref({ provider: 'modrinth', type: 'mod', loader: '', game_version: '', query: '', offset: 0, sort_index: 'relevance', category: '' })
-const isStoreLoading = ref(false)
-const isStoreLoadingMore = ref(false)
-const hasMoreStoreItems = ref(true)
-const storeResults = ref([])
-let storeSearchTimeout = null
+export interface StoreItemFile {
+  filename: string
+  url: string
+  primary?: boolean
+}
 
-const storeDetailsModal = ref({ isOpen: false, item: {}, itemData: {}, html: '', tab: 'description', versions: [] })
-const activeDropdown = ref(null)
+export interface StoreItemVersion {
+  id: string
+  version_number: string
+  name: string
+  date: string
+  changelog?: string
+  files: StoreItemFile[]
+  expanded?: boolean
+  downloading?: boolean
+  downloaded?: boolean
+  progress?: number
+  downloadTarget?: string
+}
 
-const typeOptions = [
+export interface StoreItemDetailsData {
+  body?: string
+  gallery?: Array<{ url: string; title?: string }>
+}
+
+export interface StoreItemRecord {
+  project_id: string
+  title: string
+  author: string
+  description: string
+  icon_url: string
+  downloads: number
+  follows: number
+  categories: string[]
+  provider: 'modrinth' | 'curseforge'
+  downloading?: boolean
+  downloaded?: boolean
+  progress?: number
+  downloadTarget?: string
+}
+
+export interface StoreSearchResult {
+  success: boolean
+  hits?: StoreItemRecord[]
+  msg?: string
+}
+
+export interface StoreDetailsResponse {
+  success: boolean
+  details: StoreItemDetailsData
+  versions: StoreItemVersion[]
+  msg?: string
+}
+
+interface SelectOption<T = string> {
+  value: T
+  label: string
+}
+
+type DropdownName = 'type' | 'version' | 'loader' | 'sort' | null
+
+const storeData = ref({
+  provider: 'modrinth' as 'modrinth' | 'curseforge',
+  type: 'mod',
+  loader: '',
+  game_version: '',
+  query: '',
+  offset: 0,
+  sort_index: 'relevance',
+  category: '',
+})
+
+const isStoreLoading = ref<boolean>(false)
+const isStoreLoadingMore = ref<boolean>(false)
+const hasMoreStoreItems = ref<boolean>(true)
+const storeResults = ref<StoreItemRecord[]>([])
+let storeSearchTimeout: ReturnType<typeof setTimeout> | null = null
+
+const storeDetailsModal = ref<{
+  isOpen: boolean
+  item: StoreItemRecord | null
+  itemData: StoreItemDetailsData
+  html: string
+  tab: 'description' | 'versions'
+  versions: StoreItemVersion[]
+}>({
+  isOpen: false,
+  item: null,
+  itemData: {},
+  html: '',
+  tab: 'description',
+  versions: [],
+})
+
+const activeDropdown = ref<DropdownName>(null)
+
+const typeOptions: SelectOption[] = [
   { value: 'mod', label: t('Mods') },
   { value: 'resourcepack', label: t('Resourcepacks') },
-  { value: 'shader', label: t('Shaders') }
+  { value: 'shader', label: t('Shaders') },
 ]
 
-const loaderOptions = [
+const loaderOptions: SelectOption[] = [
   { value: '', label: t('All Loaders') },
   { value: 'fabric', label: t('Fabric') },
   { value: 'forge', label: t('Forge') },
   { value: 'quilt', label: t('Quilt') },
-  { value: 'neoforge', label: t('NeoForge') }
+  { value: 'neoforge', label: t('NeoForge') },
 ]
 
-const sortOptions = [
+const sortOptions: SelectOption[] = [
   { value: 'relevance', label: t('Relevance') },
   { value: 'downloads', label: t('Downloads') },
   { value: 'newest', label: t('Newest') },
-  { value: 'updated', label: t('Updated') }
+  { value: 'updated', label: t('Updated') },
 ]
 
-const fallbackModIcon = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%236366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>'
+const fallbackModIcon =
+  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%236366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>'
 
-const closeDropdowns = (e) => {
-  if (!e.target.closest('.custom-dropdown')) {
+const closeDropdowns = (e: MouseEvent): void => {
+  const target = e.target as HTMLElement | null
+  if (!target || !target.closest('.custom-dropdown')) {
     activeDropdown.value = null
   }
 }
 
-const formatNumber = (num) => {
+const formatNumber = (num: number): string => {
   if (!num) return '0'
   if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
   if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
   return num.toString()
 }
 
-const openUrl = (url) => {
+const openUrl = (url?: string): void => {
   if (url) window.open(url, '_blank')
 }
 
-const renderMarkdown = (text) => {
+const renderMarkdown = (text?: string): string => {
   if (!text) return ''
   try {
-    return marked.parse(text)
-  } catch (e) {
+    return marked.parse(text) as string
+  } catch {
     return sanitizeHTML(text)
   }
 }
 
-const setProvider = (providerName) => {
+const setProvider = (providerName: 'modrinth' | 'curseforge'): void => {
   storeData.value.provider = providerName
   performStoreSearch()
 }
 
-const setStoreCategory = (cat) => {
+const setStoreCategory = (cat: string): void => {
   if (storeData.value.category === cat) {
     storeData.value.category = ''
   } else {
@@ -304,41 +407,42 @@ const setStoreCategory = (cat) => {
   performStoreSearch()
 }
 
-const debounceStoreSearch = () => {
-  clearTimeout(storeSearchTimeout)
+const debounceStoreSearch = (): void => {
+  if (storeSearchTimeout) clearTimeout(storeSearchTimeout)
   storeSearchTimeout = setTimeout(() => {
     performStoreSearch()
   }, 400)
 }
 
-const fetchStoreData = async () => {
-  if (!api.value) return { success: false, hits: [] }
+const fetchStoreData = async (): Promise<StoreSearchResult> => {
   try {
-    const res = await api.value.search_store(
-      storeData.value.provider,
-      storeData.value.query,
-      storeData.value.type,
-      storeData.value.loader,
-      storeData.value.game_version,
-      storeData.value.category,
-      storeData.value.sort_index,
-      storeData.value.offset
-    )
+    const res = await invokeSafe<StoreSearchResult>('search_store', {
+      provider: storeData.value.provider,
+      query: storeData.value.query.trim() || null,
+      projectType: storeData.value.type || null,
+      loader: storeData.value.loader || null,
+      gameVersion: storeData.value.game_version || null,
+      category: storeData.value.category || null,
+      sortIndex: storeData.value.sort_index || null,
+      offset: storeData.value.offset,
+    })
     return res || { success: true, hits: [] }
-  } catch (e) {
-    return { success: false, hits: [], msg: String(e) }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { success: false, hits: [], msg: message }
   }
 }
 
-const performStoreSearch = async () => {
+const performStoreSearch = async (): Promise<void> => {
   isStoreLoading.value = true
   storeData.value.offset = 0
   hasMoreStoreItems.value = true
+
   try {
     const data = await fetchStoreData()
     if (!data || !data.success) {
       if (data && data.msg) {
-        showToast(t("Store Notice"), data.msg, "danger")
+        showToast(t('Store Notice'), data.msg, 'danger')
       }
       storeResults.value = []
       hasMoreStoreItems.value = false
@@ -346,51 +450,57 @@ const performStoreSearch = async () => {
       if (!data.hits || data.hits.length === 0) {
         hasMoreStoreItems.value = false
       }
-
-      storeResults.value = (data.hits || []).map(item => ({
+      storeResults.value = (data.hits || []).map((item) => ({
         ...item,
         downloading: false,
         downloaded: false,
         progress: 0,
-        downloadTarget: ''
+        downloadTarget: '',
       }))
     }
-  } catch (e) {
+  } catch (err: unknown) {
     hasMoreStoreItems.value = false
-    showToast(t("Error"), String(e), "danger")
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg, 'danger')
+  } finally {
+    isStoreLoading.value = false
   }
-  isStoreLoading.value = false
 }
 
-const loadMoreStoreItems = async () => {
+const loadMoreStoreItems = async (): Promise<void> => {
   if (isStoreLoadingMore.value || isStoreLoading.value || !hasMoreStoreItems.value) return
   isStoreLoadingMore.value = true
   storeData.value.offset += 12
+
   try {
     const data = await fetchStoreData()
     if (data && data.success && data.hits && data.hits.length > 0) {
-      const newItems = data.hits.map(item => ({
+      const newItems: StoreItemRecord[] = data.hits.map((item) => ({
         ...item,
-        downloading: false, downloaded: false, progress: 0, downloadTarget: ''
+        downloading: false,
+        downloaded: false,
+        progress: 0,
+        downloadTarget: '',
       }))
       storeResults.value = [...storeResults.value, ...newItems]
     } else {
       hasMoreStoreItems.value = false
     }
-  } catch (e) {
+  } catch {
     hasMoreStoreItems.value = false
+  } finally {
+    isStoreLoadingMore.value = false
   }
-  isStoreLoadingMore.value = false
 }
 
-const handleScroll = (e) => {
-  const el = e.target
+const handleScroll = (e: Event): void => {
+  const el = e.target as HTMLElement
   if (el.scrollHeight - el.scrollTop <= el.clientHeight + 150) {
     loadMoreStoreItems()
   }
 }
 
-const openStoreItemDetails = async (item) => {
+const openStoreItemDetails = async (item: StoreItemRecord): Promise<void> => {
   storeDetailsModal.value.item = item
   storeDetailsModal.value.itemData = {}
   storeDetailsModal.value.versions = []
@@ -399,108 +509,157 @@ const openStoreItemDetails = async (item) => {
   storeDetailsModal.value.isOpen = true
 
   try {
-    if (api.value) {
-      const res = await api.value.get_store_full_details(
-        item.provider,
-        item.project_id,
-        storeData.value.loader,
-        storeData.value.game_version
-      )
+    const res = await invokeSafe<StoreDetailsResponse>('get_store_full_details', {
+      provider: item.provider,
+      projectId: item.project_id,
+      loader: storeData.value.loader || null,
+      gameVersion: storeData.value.game_version || null,
+    })
 
-      if (res && res.success) {
-        storeDetailsModal.value.itemData = res.details
-        storeDetailsModal.value.versions = res.versions.map(v => ({...v, expanded: false, downloading: false, downloaded: false, progress: 0, downloadTarget: ''}))
-        if (res.details.body) {
-          storeDetailsModal.value.html = marked.parse(res.details.body)
-        } else {
-          storeDetailsModal.value.html = `<div class="text-center text-white/50 py-20">${t('No description provided.')}</div>`
-        }
+    if (res && res.success) {
+      storeDetailsModal.value.itemData = res.details
+      storeDetailsModal.value.versions = (res.versions || []).map((v) => ({
+        ...v,
+        expanded: false,
+        downloading: false,
+        downloaded: false,
+        progress: 0,
+        downloadTarget: '',
+      }))
+
+      if (res.details.body) {
+        storeDetailsModal.value.html = marked.parse(res.details.body) as string
       } else {
-        storeDetailsModal.value.html = `<div class="text-center text-red-400 py-20">${res.msg || t('Failed to load description.')}</div>`
+        storeDetailsModal.value.html = `<div class="text-center text-white/50 py-20">${t('No description provided.')}</div>`
       }
+    } else {
+      storeDetailsModal.value.html = `<div class="text-center text-red-400 py-20">${res?.msg || t('Failed to load description.')}</div>`
     }
-  } catch (e) {
+  } catch {
     storeDetailsModal.value.html = `<div class="text-center text-red-400 py-20">${t('Failed to load description.')}</div>`
   }
 }
 
-const downloadStoreItem = async (item) => {
-  if (!api.value || item.downloading) return
+const downloadStoreItem = async (item: StoreItemRecord): Promise<void> => {
+  if (item.downloading) return
   item.downloading = true
-  try {
-    const res = await api.value.get_store_full_details(
-      item.provider,
-      item.project_id,
-      storeData.value.loader,
-      storeData.value.game_version
-    )
 
-    if (!res || !res.success || res.versions.length === 0) {
-      showToast(t("Error"), t("No versions found."), "danger")
+  try {
+    const res = await invokeSafe<StoreDetailsResponse>('get_store_full_details', {
+      provider: item.provider,
+      projectId: item.project_id,
+      loader: storeData.value.loader || null,
+      gameVersion: storeData.value.game_version || null,
+    })
+
+    if (!res || !res.success || !res.versions || res.versions.length === 0) {
+      showToast(t('Error'), t('No versions found.'), 'danger')
       item.downloading = false
       return
     }
 
-    const targetFile = res.versions[0].files.find(f => f.primary) || res.versions[0].files[0]
+    const firstVer = res.versions[0]
+    if (!firstVer || !firstVer.files || firstVer.files.length === 0) {
+      showToast(t('Error'), t('No files in this version.'), 'danger')
+      item.downloading = false
+      return
+    }
+
+    const targetFile = firstVer.files.find((f) => f.primary) || firstVer.files[0]
+    if (!targetFile) {
+      showToast(t('Error'), t('Target file not found.'), 'danger')
+      item.downloading = false
+      return
+    }
+
     item.downloadTarget = targetFile.filename
-    const success = await api.value.download_store_item(targetFile.url, targetFile.filename, storeData.value.type)
+    const success = await invokeSafe<boolean>('download_store_item', {
+      url: targetFile.url,
+      filename: targetFile.filename,
+      projectType: storeData.value.type,
+    })
 
     if (success) {
       item.downloaded = true
       item.progress = 100
-      showToast(t("Success"), `${targetFile.filename} downloaded.`, "success")
+      showToast(t('Success'), `${targetFile.filename} downloaded.`, 'success')
     } else {
-      showToast(t("Error"), t("Download failed."), "danger")
+      showToast(t('Error'), t('Download failed.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Network error."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Network error.'), 'danger')
+  } finally {
+    item.downloading = false
   }
-  item.downloading = false
 }
 
-const downloadSpecificVersion = async (ver) => {
-  if (!api.value || ver.downloading) return
+const downloadSpecificVersion = async (ver: StoreItemVersion): Promise<void> => {
+  if (ver.downloading) return
   ver.downloading = true
+
   try {
     if (!ver.files || ver.files.length === 0) {
-      showToast(t("Error"), t("No files in this version."), "danger")
+      showToast(t('Error'), t('No files in this version.'), 'danger')
       ver.downloading = false
       return
     }
-    const targetFile = ver.files.find(f => f.primary) || ver.files[0]
+
+    const targetFile = ver.files.find((f) => f.primary) || ver.files[0]
+    if (!targetFile) {
+      showToast(t('Error'), t('File could not be resolved.'), 'danger')
+      ver.downloading = false
+      return
+    }
+
     ver.downloadTarget = targetFile.filename
-    const success = await api.value.download_specific_file(targetFile.url, targetFile.filename, storeData.value.type)
+    const success = await invokeSafe<boolean>('download_specific_file', {
+      url: targetFile.url,
+      filename: targetFile.filename,
+      projectType: storeData.value.type,
+    })
+
     if (success) {
       ver.downloaded = true
-      showToast(t("Installed"), `${targetFile.filename} downloaded.`, "success")
+      showToast(t('Installed'), `${targetFile.filename} downloaded.`, 'success')
     } else {
-      showToast(t("Error"), t("Download failed."), "danger")
+      showToast(t('Error'), t('Download failed.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Network error."), "danger")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Network error.'), 'danger')
+  } finally {
+    ver.downloading = false
   }
-  ver.downloading = false
+}
+
+declare global {
+  interface Window {
+    updateDownloadProgress?: ((filename: string, p: number) => void) | null
+  }
 }
 
 onMounted(async () => {
   window.addEventListener('click', closeDropdowns)
 
-  if (state.mcVersions.length === 0 && api.value) {
+  if (state.mcVersions.length === 0) {
     try {
-      state.mcVersions = await api.value.get_mc_versions()
-    } catch (e) {}
+      state.mcVersions = await bridge.getMcVersions()
+    } catch {
+      // Ignored
+    }
   }
 
-  performStoreSearch()
+  await performStoreSearch()
 
-  window.updateDownloadProgress = (filename, p) => {
-    const item = storeResults.value.find(i => i.downloadTarget === filename)
+  window.updateDownloadProgress = (filename: string, p: number): void => {
+    const item = storeResults.value.find((i) => i.downloadTarget === filename)
     if (item) item.progress = p
     if (storeDetailsModal.value.item && storeDetailsModal.value.item.downloadTarget === filename) {
       storeDetailsModal.value.item.progress = p
     }
     if (storeDetailsModal.value.versions) {
-      const ver = storeDetailsModal.value.versions.find(v => v.downloadTarget === filename)
+      const ver = storeDetailsModal.value.versions.find((v) => v.downloadTarget === filename)
       if (ver) ver.progress = p
     }
   }
@@ -509,5 +668,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('click', closeDropdowns)
   window.updateDownloadProgress = null
+  if (storeSearchTimeout) clearTimeout(storeSearchTimeout)
 })
 </script>

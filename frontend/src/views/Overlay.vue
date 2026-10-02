@@ -239,51 +239,116 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { Hexagon, X, Activity, BrainCircuit, Send, Loader, Mic, MicOff, Headphones, PhoneOff, Cpu, Clock, Trash2, Skull, Zap, User, Hash, Dices, PhoneCall, Settings, StickyNote } from 'lucide-vue-next'
-import { state, api, getAvatarUrl, sanitizeHTML, voiceState, toggleMute, toggleDeafen, leaveVoiceChannel, joinVoiceChannel, showToast, t, toggleVoiceSettings, setAudioInput, setAudioOutput, startMicTest, stopMicTest } from '@/store.js'
+import {
+  Hexagon,
+  X,
+  Activity,
+  BrainCircuit,
+  Send,
+  Loader,
+  Mic,
+  MicOff,
+  Headphones,
+  PhoneOff,
+  Cpu,
+  Clock,
+  Trash2,
+  Skull,
+  Zap,
+  User,
+  Hash,
+  Dices,
+  PhoneCall,
+  Settings,
+  StickyNote,
+} from 'lucide-vue-next'
+import {
+  state,
+  getAvatarUrl,
+  sanitizeHTML,
+  voiceState,
+  toggleMute,
+  toggleDeafen,
+  leaveVoiceChannel,
+  joinVoiceChannel,
+  showToast,
+  t,
+  toggleVoiceSettings,
+  setAudioInput,
+  setAudioOutput,
+  startMicTest,
+  stopMicTest,
+} from '@/store'
+import { invokeSafe, bridge, type DashboardStats, type ToolExecutionResult } from '@/bridge'
 import { marked } from 'marked'
 
-const currentTime = ref('')
-const memoryUsage = ref(0)
-const aiPrompt = ref('')
-const isAiThinking = ref(false)
-const chatScroll = ref(null)
-const realPlaytime = ref('0h 0m')
-const connectChannel = ref('')
-const notesText = ref('')
-let noteSaveTimeout = null
+interface WidgetPosition {
+  show: boolean
+  x: number
+  y: number
+  z: number
+}
 
-const chatHistory = ref([
-  { role: 'ai', content: 'Neural link established. Awaiting input for game analysis or assistance.' }
+type WidgetKey = 'voice' | 'ai' | 'telemetry' | 'actions' | 'notes'
+
+interface ChatMessage {
+  role: 'user' | 'ai'
+  content: string
+}
+
+const currentTime = ref<string>('')
+const memoryUsage = ref<number>(0)
+const aiPrompt = ref<string>('')
+const isAiThinking = ref<boolean>(false)
+const chatScroll = ref<HTMLElement | null>(null)
+const realPlaytime = ref<string>('0h 0m')
+const connectChannel = ref<string>('')
+const notesText = ref<string>('')
+let noteSaveTimeout: ReturnType<typeof setTimeout> | null = null
+
+const chatHistory = ref<ChatMessage[]>([
+  { role: 'ai', content: 'Neural link established. Awaiting input for game analysis or assistance.' },
 ])
 
-const zIndexCounter = ref(10000)
+const zIndexCounter = ref<number>(10000)
 
-const widgets = ref({
+const widgets = ref<Record<WidgetKey, WidgetPosition>>({
   voice: { show: true, x: 40, y: 100, z: 10001 },
   ai: { show: false, x: 380, y: 100, z: 10002 },
   telemetry: { show: true, x: 40, y: 450, z: 10003 },
   actions: { show: false, x: 380, y: 450, z: 10004 },
-  notes: { show: false, x: 700, y: 100, z: 10005 }
+  notes: { show: false, x: 700, y: 100, z: 10005 },
 })
 
-let activeDrag = null
+let activeDrag: WidgetKey | null = null
 let startX = 0
 let startY = 0
 
-const toggleWidget = (id) => {
+const toggleWidget = (id: WidgetKey): void => {
   widgets.value[id].show = !widgets.value[id].show
   if (widgets.value[id].show) bringToFront(id)
 }
 
-const bringToFront = (id) => {
+const bringToFront = (id: WidgetKey): void => {
   zIndexCounter.value++
   widgets.value[id].z = zIndexCounter.value
 }
 
-const startDrag = (e, id) => {
+const onDrag = (e: MouseEvent): void => {
+  if (!activeDrag) return
+  widgets.value[activeDrag].x = e.clientX - startX
+  widgets.value[activeDrag].y = e.clientY - startY
+}
+
+const stopDrag = (): void => {
+  activeDrag = null
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+}
+
+const startDrag = (e: MouseEvent, id: WidgetKey): void => {
   activeDrag = id
   bringToFront(id)
   startX = e.clientX - widgets.value[id].x
@@ -292,33 +357,21 @@ const startDrag = (e, id) => {
   document.addEventListener('mouseup', stopDrag)
 }
 
-const onDrag = (e) => {
-  if (!activeDrag) return
-  widgets.value[activeDrag].x = e.clientX - startX
-  widgets.value[activeDrag].y = e.clientY - startY
-}
+let timeInterval: ReturnType<typeof setInterval> | null = null
+let statsInterval: ReturnType<typeof setInterval> | null = null
 
-const stopDrag = () => {
-  activeDrag = null
-  document.removeEventListener('mousemove', onDrag)
-  document.removeEventListener('mouseup', stopDrag)
-}
-
-let timeInterval = null
-let statsInterval = null
-
-const generateRandomRoom = () => {
+const generateRandomRoom = (): string => {
   return 'kip-' + Math.random().toString(36).substring(2, 6)
 }
 
-const handleJoinVoice = () => {
+const handleJoinVoice = (): void => {
   if (!connectChannel.value) {
     connectChannel.value = generateRandomRoom()
   }
   joinVoiceChannel(connectChannel.value)
 }
 
-const toggleMicTest = () => {
+const toggleMicTest = (): void => {
   if (voiceState.isTestingMic) {
     stopMicTest()
   } else {
@@ -326,7 +379,7 @@ const toggleMicTest = () => {
   }
 }
 
-const scrollToBottom = () => {
+const scrollToBottom = (): void => {
   nextTick(() => {
     if (chatScroll.value) {
       chatScroll.value.scrollTop = chatScroll.value.scrollHeight
@@ -334,52 +387,55 @@ const scrollToBottom = () => {
   })
 }
 
-const updateTime = () => {
+const updateTime = (): void => {
   currentTime.value = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-const updateStats = async () => {
-  if (api.value) {
-    try {
-      const info = await api.value.get_sys_info()
-      const ramLine = info.split('\n').find(l => l.startsWith('RAM:'))
-      if (ramLine) {
-        const totalGb = parseFloat(ramLine.replace('RAM:', '').replace('GB', '').trim())
-        if (!isNaN(totalGb) && totalGb > 0) {
-          const simulatedLoad = Math.min(Math.max(Math.round((4.0 / totalGb) * 100), 20), 95)
-          memoryUsage.value = simulatedLoad
-        }
-      }
-      const s = await api.value.get_dashboard_stats()
-      if (s && s.playtime) realPlaytime.value = s.playtime
-    } catch (e) {}
-  }
-}
-
-const closeOverlay = () => {
-  if (api.value) {
-    try {
-      api.value.toggle_overlay()
-    } catch (e) {}
-  }
-}
-
-const runQuickTool = async (toolId) => {
-  if (!api.value) return
+const updateStats = async (): Promise<void> => {
   try {
-    const res = await api.value.run_tool(toolId)
-    if (res.success) {
-      showToast("Action Executed", res.msg, "success")
-    } else {
-      showToast("Action Failed", res.msg, "danger")
+    const info = await invokeSafe<string>('get_sys_info')
+    const ramLine = info.split('\n').find((l) => l.startsWith('RAM:'))
+    if (ramLine) {
+      const totalGb = parseFloat(ramLine.replace('RAM:', '').replace('GB', '').trim())
+      if (!isNaN(totalGb) && totalGb > 0) {
+        const simulatedLoad = Math.min(Math.max(Math.round((4.0 / totalGb) * 100), 20), 95)
+        memoryUsage.value = simulatedLoad
+      }
     }
-  } catch (e) {}
+
+    const s = await invokeSafe<DashboardStats>('get_dashboard_stats')
+    if (s && s.playtime) realPlaytime.value = s.playtime
+  } catch {
+    // Retains previous telemetry
+  }
 }
 
-const sendToAi = async () => {
-  if (!aiPrompt.value.trim() || isAiThinking.value || !api.value) return
+const closeOverlay = (): void => {
+  try {
+    bridge.toggleOverlay().catch(() => {})
+  } catch {
+    // Ignored
+  }
+}
 
+const runQuickTool = async (toolId: string): Promise<void> => {
+  try {
+    const res = await invokeSafe<ToolExecutionResult>('run_tool', { toolId })
+    if (res && res.success) {
+      showToast('Action Executed', res.msg, 'success')
+    } else {
+      showToast('Action Failed', res?.msg || 'Execution failed', 'danger')
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast('Action Failed', msg, 'danger')
+  }
+}
+
+const sendToAi = async (): Promise<void> => {
   const userText = aiPrompt.value.trim()
+  if (!userText || isAiThinking.value) return
+
   chatHistory.value.push({ role: 'user', content: sanitizeHTML(userText) })
   aiPrompt.value = ''
   isAiThinking.value = true
@@ -387,36 +443,45 @@ const sendToAi = async () => {
 
   try {
     const prompt = `You are an in-game HUD assistant for a Minecraft player. Keep your answer brief, highly technical but helpful, and use markdown. Player asks: ${userText}`
-    const res = await api.value.analyze_crash_ai(prompt)
+    const res = await invokeSafe<{ success: boolean; answer: string }>('analyze_crash_ai', {
+      logSnippet: prompt,
+    })
 
-    if (res.success) {
-      chatHistory.value.push({ role: 'ai', content: marked.parse(res.answer) })
+    if (res && res.success) {
+      chatHistory.value.push({ role: 'ai', content: marked.parse(res.answer) as string })
     } else {
-      chatHistory.value.push({ role: 'ai', content: `<span class="text-red-400">Error connecting to Neural Network: ${sanitizeHTML(res.answer)}</span>` })
+      chatHistory.value.push({
+        role: 'ai',
+        content: `<span class="text-red-400">Error connecting to Neural Network: ${sanitizeHTML(res?.answer || 'Service unavailable')}</span>`,
+      })
     }
-  } catch (e) {
-    chatHistory.value.push({ role: 'ai', content: `<span class="text-red-400">Critical Backend Failure.</span>` })
-  }
-  isAiThinking.value = false
-  scrollToBottom()
-}
-
-const loadNote = async () => {
-  if (api.value) {
-    try {
-      const text = await api.value.get_note()
-      notesText.value = text
-    } catch (e) {}
+  } catch {
+    chatHistory.value.push({
+      role: 'ai',
+      content: `<span class="text-red-400">Critical Backend Failure.</span>`,
+    })
+  } finally {
+    isAiThinking.value = false
+    scrollToBottom()
   }
 }
 
-const debouncedSaveNote = () => {
-  clearTimeout(noteSaveTimeout)
+const loadNote = async (): Promise<void> => {
+  try {
+    const text = await invokeSafe<string>('get_note')
+    notesText.value = text || ''
+  } catch {
+    notesText.value = ''
+  }
+}
+
+const debouncedSaveNote = (): void => {
+  if (noteSaveTimeout) clearTimeout(noteSaveTimeout)
   noteSaveTimeout = setTimeout(async () => {
-    if (api.value) {
-      try {
-        await api.value.save_note(notesText.value)
-      } catch (e) {}
+    try {
+      await invokeSafe<boolean>('save_note', { text: notesText.value })
+    } catch {
+      // Ignored
     }
   }, 1000)
 }
@@ -431,8 +496,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  clearInterval(timeInterval)
-  clearInterval(statsInterval)
+  if (timeInterval) clearInterval(timeInterval)
+  if (statsInterval) clearInterval(statsInterval)
+  if (noteSaveTimeout) clearTimeout(noteSaveTimeout)
   document.removeEventListener('mousemove', onDrag)
   document.removeEventListener('mouseup', stopDrag)
 })

@@ -46,78 +46,87 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { Trash2, Copy, ArrowDownToLine, Search } from 'lucide-vue-next'
-import { state, api, t, showToast } from '@/store.js'
+import { state, t, showToast } from '@/store'
+import { invokeSafe } from '@/bridge'
 
-const consoleContainer = ref(null)
-const isAutoScroll = ref(true)
-const searchQuery = ref('')
-const debouncedQuery = ref('')
-let searchTimeout = null
+const consoleContainer = ref<HTMLElement | null>(null)
+const isAutoScroll = ref<boolean>(true)
+const searchQuery = ref<string>('')
+const debouncedQuery = ref<string>('')
+let searchTimeout: ReturnType<typeof setTimeout> | null = null
 
 watch(searchQuery, (newVal) => {
-  clearTimeout(searchTimeout)
+  if (searchTimeout) clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
     debouncedQuery.value = newVal.toLowerCase()
   }, 300)
 })
 
-const filteredConsoleHtml = computed(() => {
+const filteredConsoleHtml = computed<string>(() => {
   if (!debouncedQuery.value) return state.consoleHtml
 
   const query = debouncedQuery.value
   const lines = state.consoleHtml.split('<br>')
 
-  return lines.filter(line => {
-    const textContent = line.replace(/<[^>]*>?/gm, '').toLowerCase()
-    return textContent.includes(query)
-  }).join('<br>')
+  return lines
+    .filter((line) => {
+      const textContent = line.replace(/<[^>]*>?/gm, '').toLowerCase()
+      return textContent.includes(query)
+    })
+    .join('<br>')
 })
 
-const scrollToBottom = () => {
+const scrollToBottom = (): void => {
   if (isAutoScroll.value && consoleContainer.value) {
     nextTick(() => {
-      consoleContainer.value.scrollTop = consoleContainer.value.scrollHeight
+      if (consoleContainer.value) {
+        consoleContainer.value.scrollTop = consoleContainer.value.scrollHeight
+      }
     })
   }
 }
 
-watch(() => state.consoleHtml, () => {
-  scrollToBottom()
-})
+watch(
+  () => state.consoleHtml,
+  () => {
+    scrollToBottom()
+  }
+)
 
-const clearLogs = () => {
+const clearLogs = (): void => {
   state._consoleBuffer = []
   state.consoleHtml = ''
-  showToast(t("Cleared"), t("Console output cleared."), "success")
+  showToast(t('Cleared'), t('Console output cleared.'), 'success')
 }
 
-const copyLogs = () => {
+const copyLogs = async (): Promise<void> => {
   const plainText = state.consoleHtml.replace(/<br>/g, '\n').replace(/<[^>]*>?/gm, '')
-  navigator.clipboard.writeText(plainText).then(() => {
-    showToast(t("Copied"), t("Logs copied to clipboard."), "success")
-  }).catch(() => {
-    showToast(t("Error"), t("Failed to copy logs."), "danger")
-  })
+  try {
+    await navigator.clipboard.writeText(plainText)
+    showToast(t('Copied'), t('Logs copied to clipboard.'), 'success')
+  } catch {
+    showToast(t('Error'), t('Failed to copy logs.'), 'danger')
+  }
 }
 
 onMounted(() => {
-  if (api.value) {
-    try {
-      api.value.toggle_console_stream(true)
-    } catch (e) {}
+  try {
+    invokeSafe<boolean>('toggle_console_stream', { active: true }).catch(() => {})
+  } catch {
+    // Ignored
   }
   scrollToBottom()
 })
 
 onBeforeUnmount(() => {
-  clearTimeout(searchTimeout)
-  if (api.value) {
-    try {
-      api.value.toggle_console_stream(false)
-    } catch (e) {}
+  if (searchTimeout) clearTimeout(searchTimeout)
+  try {
+    invokeSafe<boolean>('toggle_console_stream', { active: false }).catch(() => {})
+  } catch {
+    // Ignored
   }
 })
 </script>

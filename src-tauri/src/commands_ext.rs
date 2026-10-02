@@ -1,43 +1,136 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::sync::atomic::Ordering;
 use std::process::Command;
-use tauri::{AppHandle, Emitter, State, Window};
+use std::sync::atomic::Ordering;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::net::TcpStream;
+use tauri::{AppHandle, Emitter, State, Window};
+use tauri_plugin_updater::UpdaterExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use crate::commands::AppState;
 use crate::config;
-use crate::system_utils::SystemUtils;
 use crate::locales::Locales;
+use crate::system_utils::SystemUtils;
 use crate::tool_manager::ToolManager;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardStatsDto {
+    pub size: String,
+    pub saves: String,
+    pub playtime: String,
+    pub java: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerPingResultDto {
+    pub online: bool,
+    pub ping: Option<i64>,
+    pub motd: Option<String>,
+    pub players: Option<String>,
+    pub icon: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphNodeColor {
+    pub background: String,
+    pub border: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphNode {
+    pub id: String,
+    pub label: String,
+    pub shape: String,
+    pub size: u32,
+    pub color: GraphNodeColor,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphEdgeColor {
+    pub color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphEdge {
+    pub from: String,
+    pub to: String,
+    pub color: GraphEdgeColor,
+    pub arrows: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModGraphDataDto {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModUpdateItem {
+    pub filename: String,
+    pub project_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModUpdatesCheckDto {
+    pub success: bool,
+    pub updates: Vec<ModUpdateItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolExecutionResult {
+    pub success: bool,
+    pub msg: String,
+    pub clipboard: Option<String>,
+    pub doctor_res: Option<Value>,
+    pub threats: Option<Vec<Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldItemDto {
+    pub name: String,
+    pub seed: String,
+    pub mode: String,
+    pub datapacks: usize,
+    pub icon: String,
+}
+
 #[tauri::command]
-pub async fn get_dashboard_stats(state: State<'_, AppState>) -> Result<Value, String> {
-    let cfg = config::load_app_config();
-    let mc_dir = cfg.current_instance.clone();
+pub async fn get_dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStatsDto, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let cfg = config::load_app_config();
+        let mc_dir = cfg.current_instance.clone();
 
-    let size_mb = SystemUtils::get_dir_size_mb(&mc_dir);
-    let size_str = if size_mb > 1024.0 {
-        format!("{:.1} GB", size_mb / 1024.0)
-    } else {
-        format!("{:.0} MB", size_mb)
-    };
+        let size_mb = SystemUtils::get_dir_size_mb(&mc_dir);
+        let size_str = if size_mb > 1024.0 {
+            format!("{:.1} GB", size_mb / 1024.0)
+        } else {
+            format!("{:.0} MB", size_mb)
+        };
 
-    let saves_path = Path::new(&mc_dir).join("saves");
-    let saves_count = SystemUtils::get_saves_count(saves_path.to_str().unwrap_or(""));
+        let saves_path = Path::new(&mc_dir).join("saves");
+        let saves_count = SystemUtils::get_saves_count(saves_path.to_str().unwrap_or(""));
 
-    let pt = state.db.get_play_time(&mc_dir);
-    let playtime_str = format!("{}h {}m", pt / 3600, (pt % 3600) / 60);
-    let java_str = SystemUtils::get_java_version();
+        let pt = db.get_play_time(&mc_dir);
+        let playtime_str = format!("{}h {}m", pt / 3600, (pt % 3600) / 60);
+        let java_str = SystemUtils::get_java_version();
 
-    Ok(json!({
-        "size": size_str,
-        "saves": saves_count.to_string(),
-        "playtime": playtime_str,
-        "java": java_str
-    }))
+        DashboardStatsDto {
+            size: size_str,
+            saves: saves_count.to_string(),
+            playtime: playtime_str,
+            java: java_str,
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -47,16 +140,28 @@ pub fn toggle_console_stream(state: State<'_, AppState>, active: bool) -> bool {
 }
 
 #[tauri::command]
-pub async fn ping_server(ip: String) -> Result<Value, String> {
+pub async fn ping_server(ip: String) -> Result<ServerPingResultDto, String> {
     let trimmed = ip.trim();
     if trimmed.is_empty() {
-        return Ok(json!({ "online": false }));
+        return Ok(ServerPingResultDto {
+            online: false,
+            ping: None,
+            motd: None,
+            players: None,
+            icon: None,
+        });
     }
 
     let parts: Vec<&str> = trimmed.split(':').collect();
     let host = parts[0].trim();
     if host.is_empty() {
-        return Ok(json!({ "online": false }));
+        return Ok(ServerPingResultDto {
+            online: false,
+            ping: None,
+            motd: None,
+            players: None,
+            icon: None,
+        });
     }
 
     let port = if parts.len() > 1 {
@@ -66,7 +171,13 @@ pub async fn ping_server(ip: String) -> Result<Value, String> {
     };
 
     if port == 0 {
-        return Ok(json!({ "online": false }));
+        return Ok(ServerPingResultDto {
+            online: false,
+            ping: None,
+            motd: None,
+            players: None,
+            icon: None,
+        });
     }
 
     let target = format!("{}:{}", host, port);
@@ -106,7 +217,9 @@ pub async fn ping_server(ip: String) -> Result<Value, String> {
 
             while read_start.elapsed() < std::time::Duration::from_secs(3) {
                 if let Ok(Ok(n)) = tokio::time::timeout(std::time::Duration::from_millis(400), stream.read(&mut temp)).await {
-                    if n == 0 { break; }
+                    if n == 0 {
+                        break;
+                    }
                     raw_buf.extend_from_slice(&temp[..n]);
                     let raw_str = String::from_utf8_lossy(&raw_buf);
                     if let Some(s) = raw_str.find('{') {
@@ -136,98 +249,125 @@ pub async fn ping_server(ip: String) -> Result<Value, String> {
             }
 
             if parse_success {
-                Ok(json!({
-                    "online": true,
-                    "ping": latency,
-                    "motd": motd,
-                    "players": players,
-                    "icon": icon
-                }))
+                Ok(ServerPingResultDto {
+                    online: true,
+                    ping: Some(latency),
+                    motd: Some(motd),
+                    players: Some(players),
+                    icon,
+                })
             } else {
-                Ok(json!({ "online": false }))
+                Ok(ServerPingResultDto {
+                    online: false,
+                    ping: None,
+                    motd: None,
+                    players: None,
+                    icon: None,
+                })
             }
         }
-        _ => Ok(json!({ "online": false }))
+        _ => Ok(ServerPingResultDto {
+            online: false,
+            ping: None,
+            motd: None,
+            players: None,
+            icon: None,
+        }),
     }
 }
 
 #[tauri::command]
-pub fn get_mod_graph_data(state: State<'_, AppState>) -> Result<Value, String> {
-    let cfg = config::load_app_config();
-    let mods_dir = Path::new(&cfg.current_instance).join("mods");
-    let doctor_res = state.doctor.run_analysis(mods_dir.to_str().unwrap_or(""), "");
+pub async fn get_mod_graph_data(state: State<'_, AppState>) -> Result<ModGraphDataDto, String> {
+    let doctor = state.doctor.clone();
+    tokio::task::spawn_blocking(move || {
+        let cfg = config::load_app_config();
+        let mods_dir = Path::new(&cfg.current_instance).join("mods");
+        let doctor_res = doctor.run_analysis(mods_dir.to_str().unwrap_or(""), "");
 
-    let mut nodes = Vec::new();
-    let mut edges = Vec::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
 
-    if let Ok(entries) = fs::read_dir(mods_dir) {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("jar") {
-                let name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                let clean_id = name.to_lowercase().replace(' ', "-");
-                nodes.push(json!({
-                    "id": clean_id,
-                    "label": name,
-                    "shape": "dot",
-                    "size": 16,
-                    "color": { "background": "#6366F1", "border": "#818CF8" }
-                }));
+        if let Ok(entries) = fs::read_dir(&mods_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("jar") {
+                    let name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                    let clean_id = name.to_lowercase().replace(' ', "-");
+                    nodes.push(GraphNode {
+                        id: clean_id,
+                        label: name,
+                        shape: "dot".to_string(),
+                        size: 16,
+                        color: GraphNodeColor {
+                            background: "#6366F1".to_string(),
+                            border: "#818CF8".to_string(),
+                        },
+                    });
+                }
             }
         }
-    }
 
-    if let Some(issues) = doctor_res["issues"].as_array() {
-        for issue in issues {
-            let target = issue["target"].as_str().unwrap_or_default();
-            let action = issue["action"].as_str().unwrap_or_default();
-            let clean_target = target.to_lowercase().replace(".jar", "");
+        if let Some(issues) = doctor_res["issues"].as_array() {
+            for issue in issues {
+                let target = issue["target"].as_str().unwrap_or_default();
+                let action = issue["action"].as_str().unwrap_or_default();
+                let clean_target = target.to_lowercase().replace(".jar", "");
 
-            if action == "DOWNLOAD" {
-                edges.push(json!({
-                    "from": "engine",
-                    "to": clean_target,
-                    "color": { "color": "#10B981" },
-                    "arrows": "to"
-                }));
-            } else if action == "DELETE" {
-                edges.push(json!({
-                    "from": "conflict",
-                    "to": clean_target,
-                    "color": { "color": "#EF4444" },
-                    "arrows": "to"
-                }));
+                if action == "DOWNLOAD" {
+                    edges.push(GraphEdge {
+                        from: "engine".to_string(),
+                        to: clean_target,
+                        color: GraphEdgeColor {
+                            color: "#10B981".to_string(),
+                        },
+                        arrows: "to".to_string(),
+                    });
+                } else if action == "DELETE" {
+                    edges.push(GraphEdge {
+                        from: "conflict".to_string(),
+                        to: clean_target,
+                        color: GraphEdgeColor {
+                            color: "#EF4444".to_string(),
+                        },
+                        arrows: "to".to_string(),
+                    });
+                }
             }
         }
-    }
 
-    Ok(json!({ "nodes": nodes, "edges": edges }))
+        ModGraphDataDto { nodes, edges }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn import_dropped_mods(files: Vec<String>) -> Result<Value, String> {
-    let cfg = config::load_app_config();
-    let mods_dir = Path::new(&cfg.current_instance).join("mods");
-    let _ = fs::create_dir_all(&mods_dir);
+pub async fn import_dropped_mods(files: Vec<String>) -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || {
+        let cfg = config::load_app_config();
+        let mods_dir = Path::new(&cfg.current_instance).join("mods");
+        let _ = fs::create_dir_all(&mods_dir);
 
-    let mut imported = 0;
-    for file_path in files {
-        let src = Path::new(&file_path);
-        if src.exists() && src.is_file() {
-            if let Some(ext) = src.extension().and_then(|s| s.to_str()) {
-                if ext.eq_ignore_ascii_case("jar") {
-                    if let Some(name) = src.file_name() {
-                        let dest = mods_dir.join(name);
-                        if fs::copy(src, dest).is_ok() {
-                            imported += 1;
+        let mut imported = 0;
+        for file_path in files {
+            let src = Path::new(&file_path);
+            if src.exists() && src.is_file() {
+                if let Some(ext) = src.extension().and_then(|s| s.to_str()) {
+                    if ext.eq_ignore_ascii_case("jar") {
+                        if let Some(name) = src.file_name() {
+                            let dest = mods_dir.join(name);
+                            if fs::copy(src, dest).is_ok() {
+                                imported += 1;
+                            }
                         }
                     }
                 }
             }
         }
-    }
-
-    Ok(json!({ "success": true, "count": imported }))
+        json!({ "success": true, "count": imported })
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -236,36 +376,49 @@ pub fn import_mods_dialog() -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn check_mod_updates(state: State<'_, AppState>) -> Result<Value, String> {
-    let cfg = config::load_app_config();
-    let mods_dir = Path::new(&cfg.current_instance).join("mods");
+pub async fn check_mod_updates(state: State<'_, AppState>) -> Result<ModUpdatesCheckDto, String> {
+    let api = state.api.clone();
+    let jars: Vec<(String, String)> = tokio::task::spawn_blocking(|| {
+        let cfg = config::load_app_config();
+        let mods_dir = Path::new(&cfg.current_instance).join("mods");
+        let mut list = Vec::new();
+        if let Ok(entries) = fs::read_dir(mods_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let p = entry.path();
+                if p.extension().and_then(|s| s.to_str()) == Some("jar") {
+                    let name = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                    let clean_name = name.split('-').next().unwrap_or(&name).to_string();
+                    let filename = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    list.push((filename, clean_name));
+                }
+            }
+        }
+        list
+    })
+    .await
+    .map_err(|e| e.to_string())?;
 
     let mut updates = Vec::new();
-    if let Ok(entries) = fs::read_dir(mods_dir) {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let p = entry.path();
-            if p.extension().and_then(|s| s.to_str()) == Some("jar") {
-                let name = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                let clean_name = name.split('-').next().unwrap_or(&name).to_string();
-
-                if let Ok(res) = state.api.search_modrinth(&clean_name, "mod", "fabric", "", "", "relevance", 0).await {
-                    if let Some(hits) = res["hits"].as_array() {
-                        if let Some(first) = hits.first() {
-                            if let Some(pid) = first["project_id"].as_str() {
-                                updates.push(json!({
-                                    "filename": p.file_name().unwrap_or_default().to_string_lossy(),
-                                    "project_id": pid,
-                                    "name": clean_name
-                                }));
-                            }
-                        }
+    for (filename, clean_name) in jars {
+        if let Ok(res) = api.search_modrinth(&clean_name, "mod", "fabric", "", "", "relevance", 0).await {
+            if let Some(hits) = res["hits"].as_array() {
+                if let Some(first) = hits.first() {
+                    if let Some(pid) = first["project_id"].as_str() {
+                        updates.push(ModUpdateItem {
+                            filename,
+                            project_id: pid.to_string(),
+                            name: clean_name,
+                        });
                     }
                 }
             }
         }
     }
 
-    Ok(json!({ "success": true, "updates": updates }))
+    Ok(ModUpdatesCheckDto {
+        success: true,
+        updates,
+    })
 }
 
 #[tauri::command]
@@ -311,17 +464,21 @@ pub async fn apply_mod_updates(state: State<'_, AppState>, updates: Vec<Value>) 
 }
 
 #[tauri::command]
-pub fn export_modpack() -> Result<Value, String> {
-    let cfg = config::load_app_config();
-    let mc_dir = Path::new(&cfg.current_instance);
-    let export_dir = config::get_app_data_dir().join("exports");
-    let _ = fs::create_dir_all(&export_dir);
+pub async fn export_modpack() -> Result<Value, String> {
+    tokio::task::spawn_blocking(|| {
+        let cfg = config::load_app_config();
+        let mc_dir = Path::new(&cfg.current_instance);
+        let export_dir = config::get_app_data_dir().join("exports");
+        let _ = fs::create_dir_all(&export_dir);
 
-    let zip_name = format!("modpack_export_{}.zip", chrono::Local::now().format("%Y%m%d_%H%M%S"));
-    let zip_dest = export_dir.join(&zip_name);
+        let zip_name = format!("modpack_export_{}.zip", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+        let zip_dest = export_dir.join(&zip_name);
 
-    let s = ToolManager::create_backup(mc_dir.join("mods").to_str().unwrap_or(""), export_dir.to_str().unwrap_or(""));
-    Ok(json!({ "success": true, "msg": format!("Exported modpack successfully ({} MB) to {:?}", s, zip_dest) }))
+        let s = ToolManager::create_backup(mc_dir.join("mods").to_str().unwrap_or(""), export_dir.to_str().unwrap_or(""));
+        json!({ "success": true, "msg": format!("Exported modpack successfully ({:.1} MB) to {:?}", s, zip_dest) })
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -333,24 +490,22 @@ pub async fn fetch_hub() -> Result<Vec<Value>, String> {
             let data: Value = res.json().await.unwrap_or(json!([]));
             Ok(data.as_array().cloned().unwrap_or_default())
         }
-        _ => {
-            Ok(vec![
-                json!({
-                    "id": "essential-fps",
-                    "title": "K.I.P. FPS Boost Pack",
-                    "author": "KIP Studio",
-                    "description": "Essential performance optimization mods stack.",
-                    "preset": ["sodium", "lithium", "ferrite-core", "entityculling"]
-                }),
-                json!({
-                    "id": "vanilla-plus",
-                    "title": "Vanilla Enhanced Experience",
-                    "author": "Community",
-                    "description": "Quality of life, visual enhancers, and fluid animations.",
-                    "preset": ["sodium", "iris", "modmenu", "appleskin", "ambient-sounds"]
-                })
-            ])
-        }
+        _ => Ok(vec![
+            json!({
+                "id": "essential-fps",
+                "title": "K.I.P. FPS Boost Pack",
+                "author": "KIP Studio",
+                "description": "Essential performance optimization mods stack.",
+                "preset": ["sodium", "lithium", "ferrite-core", "entityculling"]
+            }),
+            json!({
+                "id": "vanilla-plus",
+                "title": "Vanilla Enhanced Experience",
+                "author": "Community",
+                "description": "Quality of life, visual enhancers, and fluid animations.",
+                "preset": ["sodium", "iris", "modmenu", "appleskin", "ambient-sounds"]
+            }),
+        ]),
     }
 }
 
@@ -368,7 +523,7 @@ pub async fn publish_hub(title: String, author: String, desc: String, mods: Vec<
     let target_url = format!("{}/", config::CLOUDFLARE_URL.trim_end_matches('/'));
     match client.post(&target_url).json(&payload).send().await {
         Ok(res) => Ok(res.status().is_success()),
-        Err(_) => Ok(true)
+        Err(_) => Ok(true),
     }
 }
 
@@ -378,13 +533,17 @@ pub fn swarm_download(state: State<'_, AppState>, magnet: String, target_dir: St
     let dest_dir = if target_dir == "MODS_DIR" {
         Path::new(&cfg.current_instance).join("mods")
     } else {
-        let safe_sub = Path::new(&target_dir).file_name().unwrap_or_default().to_string_lossy().to_string();
+        let safe_sub = Path::new(&target_dir)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         Path::new(&cfg.current_instance).join(safe_sub)
     };
 
     match state.swarm.download_magnet(&magnet, dest_dir.to_str().unwrap_or(""), |_, _| {}) {
         Ok(_) => Ok(json!({ "success": true })),
-        Err(e) => Ok(json!({ "success": false, "msg": e }))
+        Err(e) => Ok(json!({ "success": false, "msg": e })),
     }
 }
 
@@ -436,7 +595,7 @@ pub fn set_mini_mode(window: Window, mini: bool) -> bool {
 
 #[tauri::command]
 pub async fn send_bug_report(report_text: String) -> Result<bool, String> {
-    let sys_info = get_sys_info();
+    let sys_info = get_sys_info().await?;
     let client = reqwest::Client::new();
     let payload = json!({
         "type": "bug_report",
@@ -451,131 +610,261 @@ pub async fn send_bug_report(report_text: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn sync_cloud_world(world_name: String) -> Result<Value, String> {
-    let safe_name = match Path::new(&world_name).file_name() {
-        Some(n) => n.to_string_lossy().to_string(),
-        None => return Ok(json!({ "success": false, "msg": "Invalid world name." })),
-    };
+pub async fn sync_cloud_world(world_name: String) -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || {
+        let safe_name = match Path::new(&world_name).file_name() {
+            Some(n) => n.to_string_lossy().to_string(),
+            None => return json!({ "success": false, "msg": "Invalid world name." }),
+        };
 
-    let cfg = config::load_app_config();
-    let saves_dir = Path::new(&cfg.current_instance).join("saves");
-    let backups_dir = Path::new(&cfg.current_instance).join("backups_devkit");
-    let res = crate::vcs_manager::VCSManager::commit(saves_dir.to_str().unwrap_or(""), backups_dir.to_str().unwrap_or(""), &safe_name);
+        let cfg = config::load_app_config();
+        let saves_dir = Path::new(&cfg.current_instance).join("saves");
+        let backups_dir = Path::new(&cfg.current_instance).join("backups_devkit");
+        let res = crate::vcs_manager::VCSManager::commit(
+            saves_dir.to_str().unwrap_or(""),
+            backups_dir.to_str().unwrap_or(""),
+            &safe_name,
+        );
 
-    if res.get("error").is_none() {
-        Ok(json!({ "success": true, "msg": format!("World '{}' synced to timeline snapshot.", safe_name) }))
-    } else {
-        Ok(json!({ "success": false, "msg": res["error"] }))
-    }
+        if res.get("error").is_none() {
+            json!({ "success": true, "msg": format!("World '{}' synced to timeline snapshot.", safe_name) })
+        } else {
+            json!({ "success": false, "msg": res["error"] })
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn pick_file() -> Result<String, String> {
-    #[cfg(target_os = "windows")]
-    {
-        let output = Command::new("powershell")
-            .arg("-NoProfile")
-            .arg("-Command")
-            .arg("Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Java Executable (javaw.exe, java.exe)|javaw.exe;java.exe|All Files (*.*)|*.*'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }")
-            .output();
+pub async fn pick_file() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| {
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = Command::new("powershell");
+            cmd.arg("-NoProfile")
+                .arg("-Command")
+                .arg("Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Java Executable (javaw.exe, java.exe)|javaw.exe;java.exe|All Files (*.*)|*.*'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }");
+            cmd.creation_flags(0x08000000);
 
-        if let Ok(res) = output {
-            let path_str = String::from_utf8_lossy(&res.stdout).trim().to_string();
-            return Ok(path_str);
+            if let Ok(res) = cmd.output() {
+                let path_str = String::from_utf8_lossy(&res.stdout).trim().to_string();
+                return Ok(path_str);
+            }
         }
-    }
-    Ok(String::new())
+        Ok(String::new())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub async fn run_tool(state: State<'_, AppState>, _app: AppHandle, tool_id: String) -> Result<Value, String> {
-    let cfg = config::load_app_config();
-    let mc_dir = cfg.current_instance.clone();
+pub async fn run_tool(state: State<'_, AppState>, _app: AppHandle, tool_id: String) -> Result<ToolExecutionResult, String> {
+    let doctor = state.doctor.clone();
+    let shield = state.shield.clone();
+    let api = state.api.clone();
 
-    match tool_id.as_str() {
-        "clean_logs" => {
-            let logs_dir = Path::new(&mc_dir).join("logs");
-            let (c, s) = ToolManager::clean_logs(logs_dir.to_str().unwrap_or(""));
-            Ok(json!({ "success": true, "msg": format!("Deleted {} logs ({} MB)", c, s) }))
-        }
-        "kill_java" => {
-            let k = SystemUtils::kill_zombie_processes();
-            Ok(json!({ "success": true, "msg": format!("Killed {} zombie processes", k) }))
-        }
-        "backup" => {
-            let saves_dir = Path::new(&mc_dir).join("saves");
-            let backups_dir = Path::new(&mc_dir).join("backups_devkit");
-            let s = ToolManager::create_backup(saves_dir.to_str().unwrap_or(""), backups_dir.to_str().unwrap_or(""));
-            Ok(json!({ "success": true, "msg": format!("Created backup ({} MB)", s) }))
-        }
-        "clean_worlds" => {
-            let saves_dir = Path::new(&mc_dir).join("saves");
-            let r = ToolManager::clean_world_caches(saves_dir.to_str().unwrap_or(""));
-            Ok(json!({ "success": true, "msg": format!("Cleaned caches in {} worlds", r) }))
-        }
-        "flush_dns" => {
-            SystemUtils::flush_dns_cache();
-            Ok(json!({ "success": true, "msg": "DNS Cache flushed" }))
-        }
-        "unlock_worlds" => {
-            let saves_dir = Path::new(&mc_dir).join("saves");
-            let c = ToolManager::unlock_worlds(saves_dir.to_str().unwrap_or(""));
-            Ok(json!({ "success": true, "msg": format!("Unlocked {} worlds", c) }))
-        }
-        "generate_jvm" => {
-            let (ram, args) = SystemUtils::generate_jvm_args();
-            Ok(json!({ "success": true, "msg": format!("Generated args for {}GB RAM. Copied!", ram), "clipboard": args }))
-        }
-        "mod_doctor" => {
-            let mods_dir = Path::new(&mc_dir).join("mods");
-            let cfg_dir = Path::new(&mc_dir).join("config");
-            let res = state.doctor.run_analysis(mods_dir.to_str().unwrap_or(""), cfg_dir.to_str().unwrap_or(""));
-            Ok(json!({ "success": true, "doctor_res": res }))
-        }
-        "shield_scan" => {
-            let mods_dir = Path::new(&mc_dir).join("mods");
-            let res = state.shield.scan_directory(mods_dir.to_str().unwrap_or(""));
-            if res.is_empty() {
-                Ok(json!({ "success": true, "msg": "No threats detected! Your instance is clean." }))
-            } else {
-                let count = res.len();
-                Ok(json!({ "success": true, "threats": res, "msg": format!("Found {} infected or suspicious files!", count) }))
+    tokio::task::spawn_blocking(move || {
+        let cfg = config::load_app_config();
+        let mc_dir = cfg.current_instance.clone();
+
+        match tool_id.as_str() {
+            "clean_logs" => {
+                let logs_dir = Path::new(&mc_dir).join("logs");
+                let (c, s) = ToolManager::clean_logs(logs_dir.to_str().unwrap_or(""));
+                Ok(ToolExecutionResult {
+                    success: true,
+                    msg: format!("Deleted {} logs ({:.1} MB)", c, s),
+                    clipboard: None,
+                    doctor_res: None,
+                    threats: None,
+                })
             }
-        }
-        "wipe_configs" => {
-            let cfg_dir = Path::new(&mc_dir).join("config");
-            ToolManager::wipe_configs(cfg_dir.to_str().unwrap_or(""));
-            Ok(json!({ "success": true, "msg": "Configs wiped successfully" }))
-        }
-        "mclogs" => {
-            let log_path = Path::new(&mc_dir).join("logs").join("latest.log");
-            if !log_path.exists() {
-                return Ok(json!({ "success": false, "msg": "No log file found" }));
+            "kill_java" => {
+                let k = SystemUtils::kill_zombie_processes();
+                Ok(ToolExecutionResult {
+                    success: true,
+                    msg: format!("Killed {} zombie processes", k),
+                    clipboard: None,
+                    doctor_res: None,
+                    threats: None,
+                })
             }
-            if let Ok(content) = fs::read_to_string(&log_path) {
-                if let Some(url) = state.api.upload_to_mclogs(&content).await {
-                    return Ok(json!({ "success": true, "msg": "Log uploaded! URL copied.", "clipboard": url }));
+            "backup" => {
+                let saves_dir = Path::new(&mc_dir).join("saves");
+                let backups_dir = Path::new(&mc_dir).join("backups_devkit");
+                let s = ToolManager::create_backup(saves_dir.to_str().unwrap_or(""), backups_dir.to_str().unwrap_or(""));
+                Ok(ToolExecutionResult {
+                    success: true,
+                    msg: format!("Created backup ({:.1} MB)", s),
+                    clipboard: None,
+                    doctor_res: None,
+                    threats: None,
+                })
+            }
+            "clean_worlds" => {
+                let saves_dir = Path::new(&mc_dir).join("saves");
+                let r = ToolManager::clean_world_caches(saves_dir.to_str().unwrap_or(""));
+                Ok(ToolExecutionResult {
+                    success: true,
+                    msg: format!("Cleaned caches in {} worlds", r),
+                    clipboard: None,
+                    doctor_res: None,
+                    threats: None,
+                })
+            }
+            "flush_dns" => {
+                SystemUtils::flush_dns_cache();
+                Ok(ToolExecutionResult {
+                    success: true,
+                    msg: "DNS Cache flushed".to_string(),
+                    clipboard: None,
+                    doctor_res: None,
+                    threats: None,
+                })
+            }
+            "unlock_worlds" => {
+                let saves_dir = Path::new(&mc_dir).join("saves");
+                let c = ToolManager::unlock_worlds(saves_dir.to_str().unwrap_or(""));
+                Ok(ToolExecutionResult {
+                    success: true,
+                    msg: format!("Unlocked {} worlds", c),
+                    clipboard: None,
+                    doctor_res: None,
+                    threats: None,
+                })
+            }
+            "generate_jvm" => {
+                let (ram, args) = SystemUtils::generate_jvm_args();
+                Ok(ToolExecutionResult {
+                    success: true,
+                    msg: format!("Generated args for {}GB RAM. Copied!", ram),
+                    clipboard: Some(args),
+                    doctor_res: None,
+                    threats: None,
+                })
+            }
+            "mod_doctor" => {
+                let mods_dir = Path::new(&mc_dir).join("mods");
+                let cfg_dir = Path::new(&mc_dir).join("config");
+                let res = doctor.run_analysis(mods_dir.to_str().unwrap_or(""), cfg_dir.to_str().unwrap_or(""));
+                Ok(ToolExecutionResult {
+                    success: true,
+                    msg: "Doctor analysis completed.".to_string(),
+                    clipboard: None,
+                    doctor_res: Some(res),
+                    threats: None,
+                })
+            }
+            "shield_scan" => {
+                let mods_dir = Path::new(&mc_dir).join("mods");
+                let res = shield.scan_directory(mods_dir.to_str().unwrap_or(""));
+                if res.is_empty() {
+                    Ok(ToolExecutionResult {
+                        success: true,
+                        msg: "No threats detected! Your instance is clean.".to_string(),
+                        clipboard: None,
+                        doctor_res: None,
+                        threats: Some(Vec::new()),
+                    })
+                } else {
+                    let count = res.len();
+                    Ok(ToolExecutionResult {
+                        success: true,
+                        msg: format!("Found {} infected or suspicious files!", count),
+                        clipboard: None,
+                        doctor_res: None,
+                        threats: Some(res),
+                    })
                 }
             }
-            Ok(json!({ "success": false, "msg": "Upload failed" }))
-        }
-        "reset_video" => {
-            let options_txt = Path::new(&mc_dir).join("options.txt");
-            if options_txt.exists() {
-                let _ = fs::remove_file(options_txt);
+            "wipe_configs" => {
+                let cfg_dir = Path::new(&mc_dir).join("config");
+                ToolManager::wipe_configs(cfg_dir.to_str().unwrap_or(""));
+                Ok(ToolExecutionResult {
+                    success: true,
+                    msg: "Configs wiped successfully".to_string(),
+                    clipboard: None,
+                    doctor_res: None,
+                    threats: None,
+                })
             }
-            Ok(json!({ "success": true, "msg": "options.txt has been reset" }))
-        }
-        "ai_fps" => {
-            let res = SystemUtils::optimize_fps(&mc_dir);
-            if res >= 0 {
-                Ok(json!({ "success": true, "msg": format!("Applied {} performance tweaks!", res) }))
-            } else {
-                Ok(json!({ "success": false, "msg": "Failed" }))
+            "mclogs" => {
+                let log_path = Path::new(&mc_dir).join("logs").join("latest.log");
+                if !log_path.exists() {
+                    return Ok(ToolExecutionResult {
+                        success: false,
+                        msg: "No log file found".to_string(),
+                        clipboard: None,
+                        doctor_res: None,
+                        threats: None,
+                    });
+                }
+                if let Ok(content) = fs::read_to_string(&log_path) {
+                    let rt = tokio::runtime::Handle::current();
+                    let upload_opt = rt.block_on(async { api.upload_to_mclogs(&content).await });
+                    if let Some(url) = upload_opt {
+                        return Ok(ToolExecutionResult {
+                            success: true,
+                            msg: "Log uploaded! URL copied.".to_string(),
+                            clipboard: Some(url),
+                            doctor_res: None,
+                            threats: None,
+                        });
+                    }
+                }
+                Ok(ToolExecutionResult {
+                    success: false,
+                    msg: "Upload failed".to_string(),
+                    clipboard: None,
+                    doctor_res: None,
+                    threats: None,
+                })
             }
+            "reset_video" => {
+                let options_txt = Path::new(&mc_dir).join("options.txt");
+                if options_txt.exists() {
+                    let _ = fs::remove_file(options_txt);
+                }
+                Ok(ToolExecutionResult {
+                    success: true,
+                    msg: "options.txt has been reset".to_string(),
+                    clipboard: None,
+                    doctor_res: None,
+                    threats: None,
+                })
+            }
+            "ai_fps" => {
+                let res = SystemUtils::optimize_fps(&mc_dir);
+                if res >= 0 {
+                    Ok(ToolExecutionResult {
+                        success: true,
+                        msg: format!("Applied {} performance tweaks!", res),
+                        clipboard: None,
+                        doctor_res: None,
+                        threats: None,
+                    })
+                } else {
+                    Ok(ToolExecutionResult {
+                        success: false,
+                        msg: "Optimization failed. Check options.txt".to_string(),
+                        clipboard: None,
+                        doctor_res: None,
+                        threats: None,
+                    })
+                }
+            }
+            _ => Ok(ToolExecutionResult {
+                success: false,
+                msg: "Unknown tool identifier.".to_string(),
+                clipboard: None,
+                doctor_res: None,
+                threats: None,
+            }),
         }
-        _ => Ok(json!({ "success": false, "msg": "Unknown tool" })),
-    }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -593,7 +882,7 @@ pub async fn apply_doctor_fixes(
 }
 
 #[tauri::command]
-pub async fn get_media(offset: Option<usize>, limit: Option<usize>) -> Vec<Value> {
+pub async fn get_media(offset: Option<usize>, limit: Option<usize>) -> Result<Vec<Value>, String> {
     let cfg = config::load_app_config();
     let screenshots_dir = Path::new(&cfg.current_instance).join("screenshots").to_string_lossy().to_string();
     let off = offset.unwrap_or(0);
@@ -601,14 +890,16 @@ pub async fn get_media(offset: Option<usize>, limit: Option<usize>) -> Vec<Value
 
     tokio::task::spawn_blocking(move || {
         crate::media_manager::MediaManager::get_media(&screenshots_dir, off, lim)
-    }).await.unwrap_or_default()
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_media_full(filename: String) -> String {
+pub async fn get_media_full(filename: String) -> Result<String, String> {
     let safe_filename = match Path::new(&filename).file_name() {
         Some(n) => n.to_string_lossy().to_string(),
-        None => return String::new(),
+        None => return Ok(String::new()),
     };
 
     let cfg = config::load_app_config();
@@ -616,30 +907,40 @@ pub async fn get_media_full(filename: String) -> String {
 
     tokio::task::spawn_blocking(move || {
         crate::media_manager::MediaManager::get_media_full(&screenshots_dir, &safe_filename)
-    }).await.unwrap_or_default()
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn compress_media() -> Value {
-    let cfg = config::load_app_config();
-    let screenshots_dir = Path::new(&cfg.current_instance).join("screenshots");
-    crate::media_manager::MediaManager::compress_media(screenshots_dir.to_str().unwrap_or(""))
+pub async fn compress_media() -> Result<Value, String> {
+    tokio::task::spawn_blocking(|| {
+        let cfg = config::load_app_config();
+        let screenshots_dir = Path::new(&cfg.current_instance).join("screenshots");
+        crate::media_manager::MediaManager::compress_media(screenshots_dir.to_str().unwrap_or(""))
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn delete_media(filename: String) -> Value {
-    let safe_filename = match Path::new(&filename).file_name() {
-        Some(n) => n.to_string_lossy().to_string(),
-        None => return json!({ "success": false, "msg": "Invalid filename." }),
-    };
+pub async fn delete_media(filename: String) -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || {
+        let safe_filename = match Path::new(&filename).file_name() {
+            Some(n) => n.to_string_lossy().to_string(),
+            None => return json!({ "success": false, "msg": "Invalid filename." }),
+        };
 
-    let cfg = config::load_app_config();
-    let screenshots_dir = Path::new(&cfg.current_instance).join("screenshots");
-    if crate::media_manager::MediaManager::delete_media(screenshots_dir.to_str().unwrap_or(""), &safe_filename) {
-        json!({ "success": true, "msg": format!("Deleted {}.", safe_filename) })
-    } else {
-        json!({ "success": false, "msg": "Failed to delete file." })
-    }
+        let cfg = config::load_app_config();
+        let screenshots_dir = Path::new(&cfg.current_instance).join("screenshots");
+        if crate::media_manager::MediaManager::delete_media(screenshots_dir.to_str().unwrap_or(""), &safe_filename) {
+            json!({ "success": true, "msg": format!("Deleted {}.", safe_filename) })
+        } else {
+            json!({ "success": false, "msg": "Failed to delete file." })
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -651,41 +952,49 @@ pub fn open_media_folder() -> Value {
 }
 
 #[tauri::command]
-pub fn get_console_logs() -> String {
-    let cfg = config::load_app_config();
-    let log_path = Path::new(&cfg.current_instance).join("logs").join("latest.log");
-    if !log_path.exists() {
-        return "Log file not found. Launch the game first.".to_string();
-    }
-    if let Ok(content) = fs::read_to_string(&log_path) {
-        let lines: Vec<&str> = content.lines().collect();
-        let start = lines.len().saturating_sub(200);
-        return lines[start..].join("\n");
-    }
-    "Failed to read logs.".to_string()
+pub async fn get_console_logs() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| {
+        let cfg = config::load_app_config();
+        let log_path = Path::new(&cfg.current_instance).join("logs").join("latest.log");
+        if !log_path.exists() {
+            return "Log file not found. Launch the game first.".to_string();
+        }
+        if let Ok(content) = fs::read_to_string(&log_path) {
+            let lines: Vec<&str> = content.lines().collect();
+            let start = lines.len().saturating_sub(200);
+            return lines[start..].join("\n");
+        }
+        "Failed to read logs.".to_string()
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_sys_info() -> String {
-    let mut sys = sysinfo::System::new_all();
-    sys.refresh_all();
+pub async fn get_sys_info() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| {
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_all();
 
-    let total_bytes = sys.total_memory();
-    let ram = if total_bytes > 0 {
-        (total_bytes as f64) / (1024.0 * 1024.0 * 1024.0)
-    } else {
-        0.0
-    };
-    let ram_rounded = (ram * 10.0).round() / 10.0;
-    let cpu = sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_else(|| "Unknown CPU".to_string());
-    let os_name = sysinfo::System::name().unwrap_or_else(|| "OS".to_string());
-    let os_ver = sysinfo::System::os_version().unwrap_or_default();
-    let java_ver = SystemUtils::get_java_version();
+        let total_bytes = sys.total_memory();
+        let ram = if total_bytes > 0 {
+            (total_bytes as f64) / (1024.0 * 1024.0 * 1024.0)
+        } else {
+            0.0
+        };
+        let ram_rounded = (ram * 10.0).round() / 10.0;
+        let cpu = sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_else(|| "Unknown CPU".to_string());
+        let os_name = sysinfo::System::name().unwrap_or_else(|| "OS".to_string());
+        let os_ver = sysinfo::System::os_version().unwrap_or_default();
+        let java_ver = SystemUtils::get_java_version();
 
-    format!(
-        "OS: {} {}\nCPU: {}\nGPU: Unknown\nRAM: {}GB\nJava: {}\nLauncher Ver: {}",
-        os_name, os_ver, cpu, ram_rounded, java_ver, config::APP_VERSION
-    )
+        format!(
+            "OS: {} {}\nCPU: {}\nGPU: Unknown\nRAM: {}GB\nJava: {}\nLauncher Ver: {}",
+            os_name, os_ver, cpu, ram_rounded, java_ver, config::APP_VERSION
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -699,22 +1008,30 @@ pub async fn analyze_crash_ai(state: State<'_, AppState>, log_snippet: String) -
 }
 
 #[tauri::command]
-pub fn get_worlds() -> Vec<Value> {
-    let cfg = config::load_app_config();
-    let saves_dir = Path::new(&cfg.current_instance).join("saves");
-    crate::world_manager::WorldManager::get_worlds(saves_dir.to_str().unwrap_or(""))
+pub async fn get_worlds() -> Result<Vec<Value>, String> {
+    tokio::task::spawn_blocking(|| {
+        let cfg = config::load_app_config();
+        let saves_dir = Path::new(&cfg.current_instance).join("saves");
+        crate::world_manager::WorldManager::get_worlds(saves_dir.to_str().unwrap_or(""))
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn delete_world(world_name: String) -> Value {
-    let safe_name = match Path::new(&world_name).file_name() {
-        Some(n) => n.to_string_lossy().to_string(),
-        None => return json!({ "success": false, "msg": "Invalid world name." }),
-    };
+pub async fn delete_world(world_name: String) -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || {
+        let safe_name = match Path::new(&world_name).file_name() {
+            Some(n) => n.to_string_lossy().to_string(),
+            None => return json!({ "success": false, "msg": "Invalid world name." }),
+        };
 
-    let cfg = config::load_app_config();
-    let saves_dir = Path::new(&cfg.current_instance).join("saves");
-    crate::world_manager::WorldManager::delete_world(saves_dir.to_str().unwrap_or(""), &safe_name)
+        let cfg = config::load_app_config();
+        let saves_dir = Path::new(&cfg.current_instance).join("saves");
+        crate::world_manager::WorldManager::delete_world(saves_dir.to_str().unwrap_or(""), &safe_name)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -727,73 +1044,98 @@ pub fn heal_world_player(world_name: String) -> Value {
 }
 
 #[tauri::command]
-pub fn vcs_commit(world_name: String) -> Value {
-    let safe_name = match Path::new(&world_name).file_name() {
-        Some(n) => n.to_string_lossy().to_string(),
-        None => return json!({ "success": false, "msg": "Invalid world name." }),
-    };
+pub async fn vcs_commit(world_name: String) -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || {
+        let safe_name = match Path::new(&world_name).file_name() {
+            Some(n) => n.to_string_lossy().to_string(),
+            None => return json!({ "success": false, "msg": "Invalid world name." }),
+        };
 
-    let cfg = config::load_app_config();
-    let saves_dir = Path::new(&cfg.current_instance).join("saves");
-    let backups_dir = Path::new(&cfg.current_instance).join("backups_devkit");
-    let res = crate::vcs_manager::VCSManager::commit(saves_dir.to_str().unwrap_or(""), backups_dir.to_str().unwrap_or(""), &safe_name);
-    if res.get("error").is_none() {
-        json!({ "success": true, "commit": res })
-    } else {
-        json!({ "success": false, "msg": res["error"] })
-    }
+        let cfg = config::load_app_config();
+        let saves_dir = Path::new(&cfg.current_instance).join("saves");
+        let backups_dir = Path::new(&cfg.current_instance).join("backups_devkit");
+        let res = crate::vcs_manager::VCSManager::commit(
+            saves_dir.to_str().unwrap_or(""),
+            backups_dir.to_str().unwrap_or(""),
+            &safe_name,
+        );
+        if res.get("error").is_none() {
+            json!({ "success": true, "commit": res })
+        } else {
+            json!({ "success": false, "msg": res["error"] })
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn vcs_get_history(world_name: String) -> Vec<Value> {
-    let safe_name = match Path::new(&world_name).file_name() {
-        Some(n) => n.to_string_lossy().to_string(),
-        None => return Vec::new(),
-    };
+pub async fn vcs_get_history(world_name: String) -> Result<Vec<Value>, String> {
+    tokio::task::spawn_blocking(move || {
+        let safe_name = match Path::new(&world_name).file_name() {
+            Some(n) => n.to_string_lossy().to_string(),
+            None => return Vec::new(),
+        };
 
-    let cfg = config::load_app_config();
-    let backups_dir = Path::new(&cfg.current_instance).join("backups_devkit");
-    crate::vcs_manager::VCSManager::get_history(backups_dir.to_str().unwrap_or(""), &safe_name)
+        let cfg = config::load_app_config();
+        let backups_dir = Path::new(&cfg.current_instance).join("backups_devkit");
+        crate::vcs_manager::VCSManager::get_history(backups_dir.to_str().unwrap_or(""), &safe_name)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn vcs_restore(world_name: String, commit_id: String) -> Value {
-    let safe_name = match Path::new(&world_name).file_name() {
-        Some(n) => n.to_string_lossy().to_string(),
-        None => return json!({ "success": false, "msg": "Invalid world name." }),
-    };
+pub async fn vcs_restore(world_name: String, commit_id: String) -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || {
+        let safe_name = match Path::new(&world_name).file_name() {
+            Some(n) => n.to_string_lossy().to_string(),
+            None => return json!({ "success": false, "msg": "Invalid world name." }),
+        };
 
-    let clean_commit_id = commit_id.trim();
-    if clean_commit_id.is_empty() || !clean_commit_id.chars().all(|c| c.is_ascii_hexdigit()) {
-        return json!({ "success": false, "msg": "Invalid commit ID format." });
-    }
+        let clean_commit_id = commit_id.trim();
+        if clean_commit_id.is_empty() || !clean_commit_id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return json!({ "success": false, "msg": "Invalid commit ID format." });
+        }
 
-    let cfg = config::load_app_config();
-    let saves_dir = Path::new(&cfg.current_instance).join("saves");
-    let backups_dir = Path::new(&cfg.current_instance).join("backups_devkit");
-    if crate::vcs_manager::VCSManager::checkout(saves_dir.to_str().unwrap_or(""), backups_dir.to_str().unwrap_or(""), &safe_name, clean_commit_id) {
-        json!({ "success": true })
-    } else {
-        json!({ "success": false, "msg": "Failed to restore world state." })
-    }
+        let cfg = config::load_app_config();
+        let saves_dir = Path::new(&cfg.current_instance).join("saves");
+        let backups_dir = Path::new(&cfg.current_instance).join("backups_devkit");
+        if crate::vcs_manager::VCSManager::checkout(
+            saves_dir.to_str().unwrap_or(""),
+            backups_dir.to_str().unwrap_or(""),
+            &safe_name,
+            clean_commit_id,
+        ) {
+            json!({ "success": true })
+        } else {
+            json!({ "success": false, "msg": "Failed to restore world state." })
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_world_map(world_name: String) -> Value {
-    let safe_name = match Path::new(&world_name).file_name() {
-        Some(n) => n.to_string_lossy().to_string(),
-        None => return json!({ "success": false, "msg": "Invalid world name." }),
-    };
+pub async fn get_world_map(world_name: String) -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || {
+        let safe_name = match Path::new(&world_name).file_name() {
+            Some(n) => n.to_string_lossy().to_string(),
+            None => return json!({ "success": false, "msg": "Invalid world name." }),
+        };
 
-    let cfg = config::load_app_config();
-    let saves_dir = Path::new(&cfg.current_instance).join("saves");
-    let cm = crate::cartographer_manager::CartographerManager::new();
-    let b64 = cm.generate_map(saves_dir.to_str().unwrap_or(""), &safe_name, 1);
-    if !b64.is_empty() {
-        json!({ "success": true, "image": b64 })
-    } else {
-        json!({ "success": false, "msg": "Cartographer failed or dependencies missing." })
-    }
+        let cfg = config::load_app_config();
+        let saves_dir = Path::new(&cfg.current_instance).join("saves");
+        let cm = crate::cartographer_manager::CartographerManager::new();
+        let b64 = cm.generate_map(saves_dir.to_str().unwrap_or(""), &safe_name, 1);
+        if !b64.is_empty() {
+            json!({ "success": true, "image": b64 })
+        } else {
+            json!({ "success": false, "msg": "Cartographer failed or dependencies missing." })
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -872,40 +1214,44 @@ pub fn get_settings() -> Value {
 }
 
 #[tauri::command]
-pub fn save_setting(key: String, value: Value) -> bool {
-    let mut cfg = config::load_app_config();
-    match key.as_str() {
-        "mc_dir" => {
-            if let Some(s) = value.as_str() {
-                crate::commands::change_instance(s.to_string());
+pub async fn save_setting(key: String, value: Value) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut cfg = config::load_app_config();
+        match key.as_str() {
+            "mc_dir" => {
+                if let Some(s) = value.as_str() {
+                    let _ = tauri::async_runtime::block_on(crate::commands::change_instance(s.to_string()));
+                }
             }
+            "auto_backup" => { if let Some(b) = value.as_bool() { cfg.auto_backup = b; } }
+            "rpc" => { if let Some(b) = value.as_bool() { cfg.rpc = b; } }
+            "ai_provider" => { if let Some(s) = value.as_str() { cfg.ai_provider = s.to_string(); } }
+            "ai_api_key" => { if let Some(s) = value.as_str() { config::set_secret("ai_api_key", s); } }
+            "openai_api_key" => { if let Some(s) = value.as_str() { config::set_secret("openai_api_key", s); } }
+            "anthropic_api_key" => { if let Some(s) = value.as_str() { config::set_secret("anthropic_api_key", s); } }
+            "ollama_url" => { if let Some(s) = value.as_str() { cfg.ollama_url = s.to_string(); } }
+            "cf_api_key" => { if let Some(s) = value.as_str() { config::set_secret("cf_api_key", s); } }
+            "lang" => { if let Some(s) = value.as_str() { cfg.lang = s.to_string(); } }
+            "low_graphics" => { if let Some(b) = value.as_bool() { cfg.low_graphics = b; } }
+            "close_on_launch" => { if let Some(b) = value.as_bool() { cfg.close_on_launch = b; } }
+            "ram_allocation" => { if let Some(i) = value.as_i64() { cfg.ram_allocation = i as i32; } }
+            "shield_auto_scan" => { if let Some(b) = value.as_bool() { cfg.shield_auto_scan = b; } }
+            "voice_noise_suppression" => { if let Some(b) = value.as_bool() { cfg.voice_noise_suppression = b; } }
+            "eula_accepted" => { if let Some(b) = value.as_bool() { cfg.eula_accepted = b; } }
+            "telemetry_opt_in" => { if let Some(b) = value.as_bool() { cfg.telemetry_opt_in = b; } }
+            "offline_username" => { if let Some(s) = value.as_str() { cfg.offline_username = s.to_string(); } }
+            "game_resolution" => { if let Some(s) = value.as_str() { cfg.game_resolution = s.to_string(); } }
+            "game_fullscreen" => { if let Some(b) = value.as_bool() { cfg.game_fullscreen = b; } }
+            "custom_java_path" => { if let Some(s) = value.as_str() { cfg.custom_java_path = s.to_string(); } }
+            "custom_jvm_args" => { if let Some(s) = value.as_str() { cfg.custom_jvm_args = s.to_string(); } }
+            "autostart" => { if let Some(b) = value.as_bool() { cfg.autostart = b; } }
+            _ => return false,
         }
-        "auto_backup" => { if let Some(b) = value.as_bool() { cfg.auto_backup = b; } }
-        "rpc" => { if let Some(b) = value.as_bool() { cfg.rpc = b; } }
-        "ai_provider" => { if let Some(s) = value.as_str() { cfg.ai_provider = s.to_string(); } }
-        "ai_api_key" => { if let Some(s) = value.as_str() { config::set_secret("ai_api_key", s); } }
-        "openai_api_key" => { if let Some(s) = value.as_str() { config::set_secret("openai_api_key", s); } }
-        "anthropic_api_key" => { if let Some(s) = value.as_str() { config::set_secret("anthropic_api_key", s); } }
-        "ollama_url" => { if let Some(s) = value.as_str() { cfg.ollama_url = s.to_string(); } }
-        "cf_api_key" => { if let Some(s) = value.as_str() { config::set_secret("cf_api_key", s); } }
-        "lang" => { if let Some(s) = value.as_str() { cfg.lang = s.to_string(); } }
-        "low_graphics" => { if let Some(b) = value.as_bool() { cfg.low_graphics = b; } }
-        "close_on_launch" => { if let Some(b) = value.as_bool() { cfg.close_on_launch = b; } }
-        "ram_allocation" => { if let Some(i) = value.as_i64() { cfg.ram_allocation = i as i32; } }
-        "shield_auto_scan" => { if let Some(b) = value.as_bool() { cfg.shield_auto_scan = b; } }
-        "voice_noise_suppression" => { if let Some(b) = value.as_bool() { cfg.voice_noise_suppression = b; } }
-        "eula_accepted" => { if let Some(b) = value.as_bool() { cfg.eula_accepted = b; } }
-        "telemetry_opt_in" => { if let Some(b) = value.as_bool() { cfg.telemetry_opt_in = b; } }
-        "offline_username" => { if let Some(s) = value.as_str() { cfg.offline_username = s.to_string(); } }
-        "game_resolution" => { if let Some(s) = value.as_str() { cfg.game_resolution = s.to_string(); } }
-        "game_fullscreen" => { if let Some(b) = value.as_bool() { cfg.game_fullscreen = b; } }
-        "custom_java_path" => { if let Some(s) = value.as_str() { cfg.custom_java_path = s.to_string(); } }
-        "custom_jvm_args" => { if let Some(s) = value.as_str() { cfg.custom_jvm_args = s.to_string(); } }
-        "autostart" => { if let Some(b) = value.as_bool() { cfg.autostart = b; } }
-        _ => return false,
-    }
-    config::save_app_config(&cfg);
-    true
+        config::save_app_config(&cfg);
+        true
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -931,7 +1277,7 @@ pub fn get_init_data() -> Value {
 }
 
 #[tauri::command]
-pub fn get_translations(lang: String) -> std::collections::HashMap<&'static str, &'static str> {
+pub fn get_translations(lang: String) -> HashMap<&'static str, &'static str> {
     Locales::get_translations(&lang)
 }
 
@@ -954,4 +1300,42 @@ pub fn window_maximize(window: Window) {
 #[tauri::command]
 pub fn window_close(window: Window) {
     let _ = window.close();
+}
+
+#[tauri::command]
+pub async fn check_app_update(app: AppHandle) -> Result<Value, String> {
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => return Ok(json!({ "has_update": false, "error": e.to_string() })),
+    };
+    match updater.check().await {
+        Ok(Some(update)) => Ok(json!({
+            "has_update": true,
+            "version": update.version,
+            "body": update.body
+        })),
+        Ok(None) => Ok(json!({ "has_update": false })),
+        Err(e) => Ok(json!({ "has_update": false, "error": e.to_string() })),
+    }
+}
+
+#[tauri::command]
+pub async fn perform_app_update(app: AppHandle) -> Result<bool, String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    if let Some(update) = updater.check().await.map_err(|e| e.to_string())? {
+        let mut downloaded = 0;
+        update
+            .download_and_install(
+                |chunk_length, content_length| {
+                    downloaded += chunk_length;
+                    let _ = downloaded;
+                    let _ = content_length;
+                },
+                || (),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        app.restart();
+    }
+    Ok(false)
 }

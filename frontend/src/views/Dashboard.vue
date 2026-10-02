@@ -122,34 +122,50 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 import {
-  HardDrive, Globe, Clock, Hexagon, ArrowRight,
-  Coffee, Newspaper, Rocket, Play, Maximize2
+  HardDrive,
+  Globe,
+  Clock,
+  Hexagon,
+  ArrowRight,
+  Coffee,
+  Newspaper,
+  Rocket,
+  Play,
+  Maximize2,
+  Loader,
 } from 'lucide-vue-next'
-import { state, t, sanitizeHTML, toggleMiniMode } from '@/store.js'
+import { state, t, sanitizeHTML, toggleMiniMode } from '@/store'
 
-const currentDate = computed(() => {
+const currentDate = computed<string>(() => {
   try {
     const lang = state.settings.lang || 'en'
-    const localeMap = {
-      'zh': 'zh-CN',
-      'pt': 'pt-BR',
-      'ja': 'ja-JP',
-      'ko': 'ko-KR'
+    const localeMap: Record<string, string> = {
+      zh: 'zh-CN',
+      pt: 'pt-BR',
+      ja: 'ja-JP',
+      ko: 'ko-KR',
+      ru: 'ru-RU',
+      es: 'es-ES',
+      de: 'de-DE',
+      fr: 'fr-FR',
+      it: 'it-IT',
+      pl: 'pl-PL',
+      tr: 'tr-TR',
     }
     const resolvedLocale = localeMap[lang] || lang
     return new Date().toLocaleDateString(resolvedLocale, {
       month: 'long',
       day: 'numeric',
-      year: 'numeric'
+      year: 'numeric',
     })
-  } catch (e) {
+  } catch {
     return new Date().toLocaleDateString('en-US', {
       month: 'long',
       day: 'numeric',
-      year: 'numeric'
+      year: 'numeric',
     })
   }
 })

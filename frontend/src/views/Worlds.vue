@@ -24,7 +24,7 @@
         <div class="absolute -right-10 -top-10 w-32 h-32 bg-emerald-500/10 blur-3xl rounded-full pointer-events-none group-hover:bg-emerald-500/20 transition-all duration-500"></div>
 
         <div class="flex items-start gap-5 mb-6 relative z-10">
-          <img :src="w.icon || fallbackModIcon" class="w-20 h-20 rounded-2xl object-cover bg-black/40 p-1 flex-shrink-0 border border-white/10 shadow-lg group-hover:scale-105 transition-transform duration-500">
+          <img :src="w.icon || fallbackWorldIcon" class="w-20 h-20 rounded-2xl object-cover bg-black/40 p-1 flex-shrink-0 border border-white/10 shadow-lg group-hover:scale-105 transition-transform duration-500">
           <div class="flex-1 min-w-0 pt-1">
             <h3 class="font-extrabold text-white truncate text-xl mb-2">{{ w.name }}</h3>
 
@@ -158,126 +158,235 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import {
-  Loader, Heart, UploadCloud, Map, History, Trash2,
-  X, Save, RefreshCw, Earth, GitCommit, Clock
+  Loader,
+  Heart,
+  UploadCloud,
+  Map,
+  History,
+  Trash2,
+  X,
+  Save,
+  RefreshCw,
+  Earth,
+  GitCommit,
+  Clock,
+  Globe,
 } from 'lucide-vue-next'
-import { api, t, showToast } from '@/store.js'
+import { t, showToast } from '@/store'
+import { invokeSafe, type GenericActionResult } from '@/bridge'
 
-const worldsList = ref([])
-const isWorldsLoading = ref(false)
+export interface WorldCardItem {
+  name: string
+  seed: string
+  mode: string
+  datapacks: number
+  icon: string
+  healing?: boolean
+  syncing?: boolean
+}
 
-const mapModal = ref({ isOpen: false, worldName: '', loading: false, image: '' })
-const historyModal = ref({ isOpen: false, worldName: '', loading: false, commits: [] })
+export interface VcsCommitItem {
+  id: string
+  timestamp: string
+  tree?: Record<string, string>
+}
 
-const fallbackModIcon = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%236366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>'
+interface MapModalState {
+  isOpen: boolean
+  worldName: string
+  loading: boolean
+  image: string
+}
 
-const loadWorlds = async () => {
-  if (!api.value) return
+interface HistoryModalState {
+  isOpen: boolean
+  worldName: string
+  loading: boolean
+  commits: VcsCommitItem[]
+}
+
+const worldsList = ref<WorldCardItem[]>([])
+const isWorldsLoading = ref<boolean>(false)
+
+const mapModal = ref<MapModalState>({
+  isOpen: false,
+  worldName: '',
+  loading: false,
+  image: '',
+})
+
+const historyModal = ref<HistoryModalState>({
+  isOpen: false,
+  worldName: '',
+  loading: false,
+  commits: [],
+})
+
+const fallbackWorldIcon =
+  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%236366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>'
+
+const loadWorlds = async (): Promise<void> => {
   isWorldsLoading.value = true
   try {
-    const res = await api.value.get_worlds()
-    worldsList.value = res.map(w => ({ ...w, healing: false, syncing: false }))
-  } catch (e) {}
-  isWorldsLoading.value = false
+    const res = await invokeSafe<WorldCardItem[]>('get_worlds')
+    worldsList.value = (res || []).map((w) => ({
+      ...w,
+      healing: false,
+      syncing: false,
+    }))
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Failed to load worlds.'), 'danger')
+  } finally {
+    isWorldsLoading.value = false
+  }
 }
 
-const healPlayer = async (world) => {
-  if (!api.value || world.healing) return
+const healPlayer = async (world: WorldCardItem): Promise<void> => {
+  if (world.healing) return
   world.healing = true
+
   try {
-    const res = await api.value.heal_world_player(world.name)
+    const res = await invokeSafe<GenericActionResult>('heal_world_player', {
+      worldName: world.name,
+    })
     if (res && res.success) {
-      showToast(t("Player Healed"), `${t('Restored in')} ${world.name}.`, "success")
+      showToast(t('Player Healed'), `${t('Restored in')} ${world.name}.`, 'success')
     } else {
-      showToast(t("Error"), t("Failed to heal player."), "danger")
+      showToast(t('Error'), t('Failed to heal player.'), 'danger')
     }
-  } catch (e) {}
-  setTimeout(() => { world.healing = false }, 2000)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Failed to heal player.'), 'danger')
+  } finally {
+    setTimeout(() => {
+      world.healing = false
+    }, 2000)
+  }
 }
 
-const deleteWorld = async (world) => {
-  if (!api.value) return
+const deleteWorld = async (world: WorldCardItem): Promise<void> => {
   try {
-    const res = await api.value.delete_world(world.name)
+    const res = await invokeSafe<GenericActionResult>('delete_world', {
+      worldName: world.name,
+    })
     if (res && res.success) {
-      showToast(t("Deleted"), res.msg, "success")
-      loadWorlds()
+      showToast(t('Deleted'), res.msg, 'success')
+      await loadWorlds()
     } else {
-      showToast(t("Error"), res.msg || t("Failed to delete world directory."), "danger")
+      showToast(t('Error'), res?.msg || t('Failed to delete world directory.'), 'danger')
     }
-  } catch (e) {}
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Failed to delete world directory.'), 'danger')
+  }
 }
 
-const syncCloudWorld = async (world) => {
-  if (!api.value || world.syncing) return
+const syncCloudWorld = async (world: WorldCardItem): Promise<void> => {
+  if (world.syncing) return
   world.syncing = true
+
   try {
-    const res = await api.value.sync_cloud_world(world.name)
+    const res = await invokeSafe<GenericActionResult>('sync_cloud_world', {
+      worldName: world.name,
+    })
     if (res && res.success) {
-      showToast(t("Cloud Sync"), res.msg, "success")
+      showToast(t('Cloud Sync'), res.msg, 'success')
     } else {
-      showToast(t("Sync Error"), res.msg || t("Failed to sync world."), "danger")
+      showToast(t('Sync Error'), res?.msg || t('Failed to sync world.'), 'danger')
     }
-  } catch (e) {}
-  setTimeout(() => { world.syncing = false }, 2000)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Sync Error'), msg || t('Failed to sync world.'), 'danger')
+  } finally {
+    setTimeout(() => {
+      world.syncing = false
+    }, 2000)
+  }
 }
 
-const openWorldMap = async (worldName) => {
-  if (!api.value) return
+const openWorldMap = async (worldName: string): Promise<void> => {
   mapModal.value.worldName = worldName
   mapModal.value.image = ''
   mapModal.value.loading = true
   mapModal.value.isOpen = true
+
   try {
-    const res = await api.value.get_world_map(worldName)
-    if (res && res.success) {
+    const res = await invokeSafe<{ success: boolean; image?: string; msg?: string }>('get_world_map', {
+      worldName,
+    })
+    if (res && res.success && res.image) {
       mapModal.value.image = res.image
     }
-  } catch (e) {}
-  mapModal.value.loading = false
+  } catch {
+    mapModal.value.image = ''
+  } finally {
+    mapModal.value.loading = false
+  }
 }
 
-const openWorldHistory = async (worldName) => {
-  if (!api.value) return
+const openWorldHistory = async (worldName: string): Promise<void> => {
   historyModal.value.worldName = worldName
   historyModal.value.commits = []
   historyModal.value.loading = true
   historyModal.value.isOpen = true
+
   try {
-    historyModal.value.commits = await api.value.vcs_get_history(worldName)
-  } catch (e) {}
-  historyModal.value.loading = false
+    const commits = await invokeSafe<VcsCommitItem[]>('vcs_get_history', {
+      worldName,
+    })
+    historyModal.value.commits = commits || []
+  } catch {
+    historyModal.value.commits = []
+  } finally {
+    historyModal.value.loading = false
+  }
 }
 
-const commitWorld = async () => {
-  if (!api.value || historyModal.value.loading) return
+const commitWorld = async (): Promise<void> => {
+  if (historyModal.value.loading) return
   historyModal.value.loading = true
+
   try {
-    const res = await api.value.vcs_commit(historyModal.value.worldName)
+    const res = await invokeSafe<{ success: boolean; commit?: VcsCommitItem; msg?: string }>('vcs_commit', {
+      worldName: historyModal.value.worldName,
+    })
     if (res && res.success) {
-      showToast(t("Snapshot Created"), t("World state saved."), "success")
-      historyModal.value.commits = await api.value.vcs_get_history(historyModal.value.worldName)
+      showToast(t('Snapshot Created'), t('World state saved.'), 'success')
+      const commits = await invokeSafe<VcsCommitItem[]>('vcs_get_history', {
+        worldName: historyModal.value.worldName,
+      })
+      historyModal.value.commits = commits || []
     } else {
-      showToast(t("Error"), res.msg || t("Failed to create snapshot."), "danger")
+      showToast(t('Error'), res?.msg || t('Failed to create snapshot.'), 'danger')
     }
-  } catch (e) {}
-  historyModal.value.loading = false
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Failed to create snapshot.'), 'danger')
+  } finally {
+    historyModal.value.loading = false
+  }
 }
 
-const restoreCommit = async (commitId) => {
-  if (!api.value) return
+const restoreCommit = async (commitId: string): Promise<void> => {
   try {
-    const res = await api.value.vcs_restore(historyModal.value.worldName, commitId)
+    const res = await invokeSafe<GenericActionResult>('vcs_restore', {
+      worldName: historyModal.value.worldName,
+      commitId,
+    })
     if (res && res.success) {
-      showToast(t("Restored"), t("World reverted successfully."), "success")
+      showToast(t('Restored'), t('World reverted successfully.'), 'success')
       historyModal.value.isOpen = false
     } else {
-      showToast(t("Error"), res.msg || t("Failed to restore world state."), "danger")
+      showToast(t('Error'), res?.msg || t('Failed to restore world state.'), 'danger')
     }
-  } catch (e) {}
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Failed to restore world state.'), 'danger')
+  }
 }
 
 onMounted(() => {

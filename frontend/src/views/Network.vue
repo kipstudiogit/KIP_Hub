@@ -165,19 +165,19 @@
                 <span class="font-bold text-emerald-400 flex items-center gap-2 text-sm uppercase tracking-wider">
                   <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse"></span> {{ t('Online') }}
                 </span>
-                <span class="text-xs font-mono px-2 py-1 rounded-lg border" :class="getPingColorClass(pingResult.ping)">
-                  {{ pingResult.ping }} ms
+                <span class="text-xs font-mono px-2 py-1 rounded-lg border" :class="getPingColorClass(pingResult.ping || 0)">
+                  {{ pingResult.ping ?? 0 }} ms
                 </span>
               </div>
-              <p class="text-xs text-white/60 truncate mb-3" v-html="pingResult.motd"></p>
+              <p class="text-xs text-white/60 truncate mb-3" v-html="sanitizeHTML(pingResult.motd || '')"></p>
 
               <div class="w-full">
                 <div class="flex justify-between text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1.5">
                   <span>{{ t('Players') }}</span>
-                  <span>{{ pingResult.players.split('/')[0] }} / {{ pingResult.players.split('/')[1] }}</span>
+                  <span>{{ pingResult.players?.split('/')[0] || 0 }} / {{ pingResult.players?.split('/')[1] || 0 }}</span>
                 </div>
                 <div class="w-full h-1.5 bg-black/60 border border-white/5 rounded-full overflow-hidden shadow-inner">
-                  <div class="h-full bg-indigo-500 rounded-full shadow-[0_0_10px_rgba(99,102,241,0.8)]" :style="{ width: calculatePlayerPercentage(pingResult.players) + '%' }"></div>
+                  <div class="h-full bg-indigo-500 rounded-full shadow-[0_0_10px_rgba(99,102,241,0.8)]" :style="{ width: calculatePlayerPercentage(pingResult.players || '0/0') + '%' }"></div>
                 </div>
               </div>
             </div>
@@ -303,7 +303,7 @@
             </div>
             <transition name="fade">
               <div v-if="dockerDropdownOpen" class="absolute top-full left-0 w-full mt-2 bg-[#121214] border border-white/10 rounded-xl shadow-2xl overflow-hidden py-2 z-50">
-                <div v-for="c in ['paper', 'fabric', 'forge', 'vanilla']" :key="c" @click="dockerCore = c; dockerDropdownOpen = false" class="px-5 py-3 hover:bg-white/5 cursor-pointer transition font-bold text-sm uppercase tracking-wider" :class="dockerCore === c ? 'text-cyan-400' : 'text-white/70'">
+                <div v-for="c in (['paper', 'fabric', 'forge', 'vanilla'] as const)" :key="c" @click="dockerCore = c; dockerDropdownOpen = false" class="px-5 py-3 hover:bg-white/5 cursor-pointer transition font-bold text-sm uppercase tracking-wider" :class="dockerCore === c ? 'text-cyan-400' : 'text-white/70'">
                   {{ c }}
                 </div>
               </div>
@@ -323,75 +323,135 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import {
-  Activity, User, Box, Radio, Play, Square, ServerCog,
-  Link as LinkIcon, Container, ChevronDown,
-  Loader, Mic, MicOff, Headphones, PhoneOff, Settings, Hash, Dices, PhoneCall
+  Activity,
+  User,
+  Box,
+  Radio,
+  Play,
+  Square,
+  ServerCog,
+  Link as LinkIcon,
+  Container,
+  ChevronDown,
+  Loader,
+  Mic,
+  MicOff,
+  Headphones,
+  PhoneOff,
+  Settings,
+  Hash,
+  Dices,
+  PhoneCall,
 } from 'lucide-vue-next'
 import { SkinViewer, WalkingAnimation, RunningAnimation, IdleAnimation } from 'skinview3d'
 import {
-  state, api, t, showToast, getAvatarUrl, voiceState,
-  toggleMute, toggleDeafen, leaveVoiceChannel, joinVoiceChannel,
-  toggleVoiceSettings, setAudioInput, setAudioOutput, startMicTest, stopMicTest
-} from '@/store.js'
+  state,
+  t,
+  showToast,
+  getAvatarUrl,
+  sanitizeHTML,
+  voiceState,
+  toggleMute,
+  toggleDeafen,
+  leaveVoiceChannel,
+  joinVoiceChannel,
+  toggleVoiceSettings,
+  setAudioInput,
+  setAudioOutput,
+  startMicTest,
+  stopMicTest,
+} from '@/store'
+import {
+  bridge,
+  invokeSafe,
+  type ServerPingResultDto,
+  type GenericActionResult,
+} from '@/bridge'
 
-const netIp = ref('')
-const isPinging = ref(false)
-const pingResult = ref(null)
+interface PteroServer {
+  id: string
+  name: string
+  state: string
+}
 
-const netNick = ref('')
-const isSkinLoading = ref(false)
-const hasSkinLoaded = ref(false)
-const skinContainer = ref(null)
-const skinCanvas = ref(null)
-const skinAnim = ref('idle')
-let skinViewerInstance = null
-let resizeObserver = null
+interface PteroState {
+  url: string
+  key: string
+  status: string
+  serverId: string
+  servers: PteroServer[]
+  loading: boolean
+}
 
-const tunnelPort = ref('')
-const connectChannel = ref('')
+type SkinAnimationType = 'idle' | 'walk' | 'run'
+type DockerCoreType = 'paper' | 'fabric' | 'forge' | 'vanilla'
 
-const ptero = ref({ url: '', key: '', status: '', serverId: '', servers: [], loading: false })
-let pteroInterval = null
+const netIp = ref<string>('')
+const isPinging = ref<boolean>(false)
+const pingResult = ref<ServerPingResultDto | null>(null)
 
-const dockerDropdownOpen = ref(false)
-const dockerCore = ref('paper')
-const dockerVer = ref('')
-const dockerPort = ref('')
-const isDockerDeploying = ref(false)
+const netNick = ref<string>('')
+const isSkinLoading = ref<boolean>(false)
+const hasSkinLoaded = ref<boolean>(false)
+const skinContainer = ref<HTMLElement | null>(null)
+const skinCanvas = ref<HTMLCanvasElement | null>(null)
+const skinAnim = ref<SkinAnimationType>('idle')
+let skinViewerInstance: SkinViewer | null = null
+let resizeObserver: ResizeObserver | null = null
 
-const fallbackServerIcon = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="%236366f1" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>'
+const tunnelPort = ref<string>('')
+const connectChannel = ref<string>('')
 
-const getPingColorClass = (ping) => {
+const ptero = ref<PteroState>({
+  url: '',
+  key: '',
+  status: '',
+  serverId: '',
+  servers: [],
+  loading: false,
+})
+let pteroInterval: ReturnType<typeof setInterval> | null = null
+
+const dockerDropdownOpen = ref<boolean>(false)
+const dockerCore = ref<DockerCoreType>('paper')
+const dockerVer = ref<string>('')
+const dockerPort = ref<string>('')
+const isDockerDeploying = ref<boolean>(false)
+
+const fallbackServerIcon =
+  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="%236366f1" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>'
+
+const getPingColorClass = (ping: number): string => {
   if (ping < 50) return 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10'
   if (ping < 150) return 'border-amber-500/30 text-amber-400 bg-amber-500/10'
   return 'border-red-500/30 text-red-400 bg-red-500/10'
 }
 
-const calculatePlayerPercentage = (playersStr) => {
+const calculatePlayerPercentage = (playersStr: string): number => {
   try {
     const [online, max] = playersStr.split('/').map(Number)
-    if (!max || max === 0) return 0
+    if (!max || max === 0 || Number.isNaN(online) || Number.isNaN(max)) return 0
     return Math.min(Math.round((online / max) * 100), 100)
-  } catch (e) {
+  } catch {
     return 0
   }
 }
 
-const generateRandomRoom = () => {
+const generateRandomRoom = (): string => {
   return 'kip-' + Math.random().toString(36).substring(2, 6)
 }
 
-const handleJoinVoice = () => {
+const handleJoinVoice = (): void => {
   if (!connectChannel.value) {
     connectChannel.value = generateRandomRoom()
   }
   joinVoiceChannel(connectChannel.value)
 }
 
-const toggleMicTest = () => {
+const toggleMicTest = (): void => {
   if (voiceState.isTestingMic) {
     stopMicTest()
   } else {
@@ -399,21 +459,23 @@ const toggleMicTest = () => {
   }
 }
 
-const pingServer = async () => {
+const pingServer = async (): Promise<void> => {
   const cleanIp = netIp.value.trim()
   if (!cleanIp) return
   isPinging.value = true
   pingResult.value = null
-  let res = null
+  let res: ServerPingResultDto | null = null
 
   try {
-    if (api.value) res = await api.value.ping_server(cleanIp)
-  } catch (e) {}
+    res = await invokeSafe<ServerPingResultDto>('ping_server', { ip: cleanIp })
+  } catch {
+    res = null
+  }
 
   if (!res || !res.online) {
     try {
       const ipParts = cleanIp.split(':')
-      const fetchHost = ipParts[0]
+      const fetchHost = ipParts[0] || 'localhost'
       const fetchPort = ipParts.length > 1 ? ipParts[1] : '25565'
       const webRes = await fetch(`https://api.mcstatus.io/v2/status/java/${fetchHost}:${fetchPort}`)
       const data = await webRes.json()
@@ -427,24 +489,26 @@ const pingServer = async () => {
 
         res = {
           online: true,
-          players: `${data.players.online}/${data.players.max}`,
+          players: `${data.players?.online || 0}/${data.players?.max || 0}`,
           ping: 45,
           motd: motdText,
-          icon: data.icon || null
+          icon: data.icon || null,
         }
       }
-    } catch (e) {}
+    } catch {
+      // Ignored
+    }
   }
 
   if (res && res.online) {
     pingResult.value = res
   } else {
-    showToast(t("Offline"), t("Could not connect to server."), "danger")
+    showToast(t('Offline'), t('Could not connect to server.'), 'danger')
   }
   isPinging.value = false
 }
 
-const loadSkin3D = async () => {
+const loadSkin3D = async (): Promise<void> => {
   const nickname = netNick.value.trim()
   if (!nickname || !skinContainer.value || !skinCanvas.value) return
   isSkinLoading.value = true
@@ -457,9 +521,9 @@ const loadSkin3D = async () => {
     if (!skinViewerInstance) {
       skinViewerInstance = new SkinViewer({
         canvas: skinCanvas.value,
-        width: width,
-        height: height,
-        skin: url
+        width,
+        height,
+        skin: url,
       })
       skinViewerInstance.fov = 70
       skinViewerInstance.zoom = 0.9
@@ -477,14 +541,14 @@ const loadSkin3D = async () => {
       await skinViewerInstance.loadSkin(url)
     }
     hasSkinLoaded.value = true
-  } catch (e) {
-    showToast(t("Skin Error"), t("Failed to load skin for this player."), "danger")
+  } catch {
+    showToast(t('Skin Error'), t('Failed to load skin for this player.'), 'danger')
+  } finally {
+    isSkinLoading.value = false
   }
-
-  isSkinLoading.value = false
 }
 
-const setAnimation = (type) => {
+const setAnimation = (type: SkinAnimationType): void => {
   if (!skinViewerInstance) return
   skinAnim.value = type
   if (type === 'walk') {
@@ -496,105 +560,137 @@ const setAnimation = (type) => {
   }
 }
 
-const startTunnel = async () => {
+const startTunnel = (): void => {
   const port = tunnelPort.value.trim()
-  if (!port || !api.value) return
-  showToast(t("Tunnel"), t("Starting tunnel..."), "info")
+  if (!port) return
+  showToast(t('Tunnel'), t('Starting tunnel...'), 'info')
   try {
-    await api.value.start_tunnel(port)
-  } catch (e) {}
+    bridge.startTunnel(port)
+  } catch {
+    showToast(t('Tunnel Error'), t('Could not execute tunnel command.'), 'danger')
+  }
 }
 
-const stopTunnel = async () => {
-  if (!api.value) return
+const stopTunnel = (): void => {
   try {
-    await api.value.stop_tunnel()
-  } catch (e) {}
-  showToast(t("Tunnel"), t("Tunnel stopped."), "info")
+    bridge.stopTunnel()
+  } catch {
+    // Ignored
+  }
+  showToast(t('Tunnel'), t('Tunnel stopped.'), 'info')
 }
 
-const pteroConnect = async () => {
+const pteroConnect = async (): Promise<void> => {
   const url = ptero.value.url.trim()
   const key = ptero.value.key.trim()
-  if (!url || !key || !api.value) return
+  if (!url || !key) return
   ptero.value.loading = true
+
   try {
-    const res = await api.value.ptero_connect(url, key)
-    if (res.success && res.status) {
+    const res = await invokeSafe<{ success: boolean; status?: PteroServer[] }>('ptero_connect', {
+      url,
+      key,
+    })
+    if (res && res.success && res.status) {
       ptero.value.servers = res.status
-      if (ptero.value.servers.length > 0) {
+      if (ptero.value.servers.length > 0 && ptero.value.servers[0]) {
         ptero.value.serverId = ptero.value.servers[0].id
         ptero.value.status = ptero.value.servers[0].state
       }
-      showToast(t("Connected"), t("Panel linked successfully."), "success")
+      showToast(t('Connected'), t('Panel linked successfully.'), 'success')
       startPteroPolling()
     } else {
-      showToast(t("Error"), t("Could not connect to panel."), "danger")
+      showToast(t('Error'), t('Could not connect to panel.'), 'danger')
     }
-  } catch (e) {}
-  ptero.value.loading = false
+  } catch {
+    showToast(t('Error'), t('Could not connect to panel.'), 'danger')
+  } finally {
+    ptero.value.loading = false
+  }
 }
 
-const updateSelectedPteroServer = () => {
-  const srv = ptero.value.servers.find(s => s.id === ptero.value.serverId)
+const updateSelectedPteroServer = (): void => {
+  const srv = ptero.value.servers.find((s) => s.id === ptero.value.serverId)
   if (srv) {
     ptero.value.status = srv.state
   }
 }
 
-const pteroAction = async (action) => {
-  if (!ptero.value.serverId || !api.value) return
+const pteroAction = async (action: 'start' | 'restart' | 'kill'): Promise<void> => {
+  if (!ptero.value.serverId) return
   try {
-    const res = await api.value.ptero_action(action, ptero.value.serverId)
-    if (res.success) {
-      showToast(t("Command Sent"), t("Action executed."), "success")
+    const res = await invokeSafe<{ success: boolean }>('ptero_action', {
+      action,
+      serverId: ptero.value.serverId,
+    })
+    if (res && res.success) {
+      showToast(t('Command Sent'), t('Action executed.'), 'success')
     } else {
-      showToast(t("Error"), t("Action failed."), "danger")
+      showToast(t('Error'), t('Action failed.'), 'danger')
     }
-  } catch (e) {}
+  } catch {
+    showToast(t('Error'), t('Action failed.'), 'danger')
+  }
 }
 
-const startPteroPolling = () => {
+const startPteroPolling = (): void => {
   stopPteroPolling()
   if (ptero.value.serverId && ptero.value.url && ptero.value.key) {
     pteroInterval = setInterval(async () => {
-      if (ptero.value.loading || !api.value) return
+      if (ptero.value.loading) return
       try {
-        const res = await api.value.ptero_connect(ptero.value.url, ptero.value.key)
-        if (res.success && res.status) {
+        const res = await invokeSafe<{ success: boolean; status?: PteroServer[] }>('ptero_connect', {
+          url: ptero.value.url,
+          key: ptero.value.key,
+        })
+        if (res && res.success && res.status) {
           ptero.value.servers = res.status
           updateSelectedPteroServer()
         }
-      } catch (e) {}
+      } catch {
+        // Ignored in polling
+      }
     }, 5000)
   }
 }
 
-const stopPteroPolling = () => {
+const stopPteroPolling = (): void => {
   if (pteroInterval) {
     clearInterval(pteroInterval)
     pteroInterval = null
   }
 }
 
-const deployDocker = async () => {
+const deployDocker = async (): Promise<void> => {
   const ver = dockerVer.value.trim()
   const port = dockerPort.value.trim()
-  if (!ver || !port || !api.value) return
+  if (!ver || !port) return
   isDockerDeploying.value = true
+
   try {
-    const res = await api.value.deploy_docker_server(dockerCore.value, ver, port)
-    if (res.success) {
-      showToast(t("Deployed"), res.msg, "success")
+    const res = await invokeSafe<GenericActionResult>('deploy_docker_server', {
+      core: dockerCore.value,
+      version: ver,
+      port,
+    })
+    if (res && res.success) {
+      showToast(t('Deployed'), res.msg, 'success')
     } else {
-      showToast(t("Error"), res.msg, "danger")
+      showToast(t('Error'), res?.msg || t('Docker deploy failed.'), 'danger')
     }
-  } catch (e) {}
-  setTimeout(() => { isDockerDeploying.value = false }, 2000)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Docker deploy failed.'), 'danger')
+  } finally {
+    setTimeout(() => {
+      isDockerDeploying.value = false
+    }, 2000)
+  }
 }
 
-const closeDropdowns = (e) => {
-  if (!e.target.closest('.custom-dropdown')) {
+const closeDropdowns = (e: MouseEvent): void => {
+  const target = e.target as HTMLElement | null
+  if (!target || !target.closest('.custom-dropdown')) {
     dockerDropdownOpen.value = false
   }
 }

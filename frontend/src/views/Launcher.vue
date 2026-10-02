@@ -128,95 +128,136 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue'
-import { Play, Loader, ChevronDown, User, UserX, Cpu, Box, Hexagon, Component, Layers, Zap, CheckCircle } from 'lucide-vue-next'
-import { state, api, t, showToast, getAvatarUrl } from '@/store.js'
+import type { Component } from 'vue'
+import {
+  Play,
+  Loader,
+  ChevronDown,
+  User,
+  UserX,
+  Cpu,
+  Box,
+  Hexagon,
+  Component as LucideComponent,
+  Layers,
+  Zap,
+  CheckCircle,
+} from 'lucide-vue-next'
+import { state, t, showToast, getAvatarUrl } from '@/store.js'
+import { bridge, type LaunchPayload } from '@/bridge'
 
-const isVersionDropdownOpen = ref(false)
-const isLoaderVerDropdownOpen = ref(false)
-const launchData = ref({ loader: 'vanilla', version: '', loader_version: '' })
-const isLaunching = ref(false)
-const loaderVersions = ref([])
-const isLoadingVersions = ref(false)
+export type LoaderType = 'vanilla' | 'fabric' | 'forge' | 'neoforge' | 'quilt'
 
-const loaders = [
+export interface LoaderItem {
+  id: LoaderType
+  name: string
+  icon: Component
+}
+
+const isVersionDropdownOpen = ref<boolean>(false)
+const isLoaderVerDropdownOpen = ref<boolean>(false)
+const launchData = ref<LaunchPayload>({
+  loader: 'vanilla',
+  version: '',
+  loader_version: '',
+})
+
+const isLaunching = ref<boolean>(false)
+const loaderVersions = ref<string[]>([])
+const isLoadingVersions = ref<boolean>(false)
+
+const loaders: LoaderItem[] = [
   { id: 'vanilla', name: 'Vanilla', icon: Box },
   { id: 'fabric', name: 'Fabric', icon: Hexagon },
   { id: 'forge', name: 'Forge', icon: Zap },
-  { id: 'neoforge', name: 'NeoForge', icon: Component },
-  { id: 'quilt', name: 'Quilt', icon: Layers }
+  { id: 'neoforge', name: 'NeoForge', icon: LucideComponent },
+  { id: 'quilt', name: 'Quilt', icon: Layers },
 ]
 
-const activeLoaderName = computed(() => {
-  const l = loaders.find(x => x.id === launchData.value.loader)
+const activeLoaderName = computed<string>(() => {
+  const l = loaders.find((x) => x.id === launchData.value.loader)
   return l ? l.name : 'Engine'
 })
 
-const activeLoaderIcon = computed(() => {
-  const l = loaders.find(x => x.id === launchData.value.loader)
+const activeLoaderIcon = computed<Component>(() => {
+  const l = loaders.find((x) => x.id === launchData.value.loader)
   return l ? l.icon : Box
 })
 
-const currentStatusText = computed(() => {
+const currentStatusText = computed<string>(() => {
   return state.launchStatus || t('Initializing...')
 })
 
-const currentProgressVal = computed(() => {
+const currentProgressVal = computed<number>(() => {
   return state.launchProgress || 0
 })
 
-const buttonColorMap = {
+const buttonColorMap: Record<LoaderType, string> = {
   vanilla: 'bg-emerald-500 text-black border-emerald-400 hover:shadow-[0_0_30px_rgba(16,185,129,0.4)]',
   fabric: 'bg-amber-500 text-black border-amber-400 hover:shadow-[0_0_30px_rgba(245,158,11,0.4)]',
   forge: 'bg-rose-500 text-white border-rose-400 hover:shadow-[0_0_30px_rgba(244,63,94,0.4)]',
   neoforge: 'bg-orange-500 text-black border-orange-400 hover:shadow-[0_0_30px_rgba(249,115,22,0.4)]',
-  quilt: 'bg-purple-500 text-white border-purple-400 hover:shadow-[0_0_30px_rgba(168,85,247,0.4)]'
+  quilt: 'bg-purple-500 text-white border-purple-400 hover:shadow-[0_0_30px_rgba(168,85,247,0.4)]',
 }
 
-const textColorMap = {
+const textColorMap: Record<LoaderType, string> = {
   vanilla: 'text-emerald-400',
   fabric: 'text-amber-400',
   forge: 'text-rose-400',
   neoforge: 'text-orange-400',
-  quilt: 'text-purple-400'
+  quilt: 'text-purple-400',
 }
 
-const progressColorMap = {
+const progressColorMap: Record<LoaderType, string> = {
   vanilla: 'bg-emerald-400',
   fabric: 'bg-amber-400',
   forge: 'bg-rose-500',
   neoforge: 'bg-orange-400',
-  quilt: 'bg-purple-400'
+  quilt: 'bg-purple-400',
 }
 
-const bgColorMap = {
+const bgColorMap: Record<LoaderType, string> = {
   vanilla: 'bg-emerald-600',
   fabric: 'bg-amber-600',
   forge: 'bg-rose-600',
   neoforge: 'bg-orange-600',
-  quilt: 'bg-purple-600'
+  quilt: 'bg-purple-600',
 }
 
-const activeColorBtn = computed(() => {
-  if (!state.settings.has_ms_token && !state.settings.offline_username) return 'bg-red-500/20 text-red-400 border-red-500/50'
-  if (isLaunching.value) return 'bg-white/5 text-white/50 border-white/10'
-  return buttonColorMap[launchData.value.loader] || buttonColorMap.vanilla
+const activeColorBtn = computed<string>(() => {
+  if (!state.settings.has_ms_token && !state.settings.offline_username) {
+    return 'bg-red-500/20 text-red-400 border-red-500/50'
+  }
+  if (isLaunching.value) {
+    return 'bg-white/5 text-white/50 border-white/10'
+  }
+  return buttonColorMap[launchData.value.loader as LoaderType] || buttonColorMap.vanilla
 })
 
-const activeColorText = computed(() => textColorMap[launchData.value.loader] || 'text-emerald-400')
-const activeColorProgress = computed(() => progressColorMap[launchData.value.loader] || 'bg-emerald-400')
-const activeColorBg = computed(() => bgColorMap[launchData.value.loader] || 'bg-emerald-600')
+const activeColorText = computed<string>(() => {
+  return textColorMap[launchData.value.loader as LoaderType] || 'text-emerald-400'
+})
 
-const closeDropdowns = (e) => {
-  if (!e.target.closest('.custom-dropdown')) {
+const activeColorProgress = computed<string>(() => {
+  return progressColorMap[launchData.value.loader as LoaderType] || 'bg-emerald-400'
+})
+
+const activeColorBg = computed<string>(() => {
+  return bgColorMap[launchData.value.loader as LoaderType] || 'bg-emerald-600'
+})
+
+const closeDropdowns = (e: MouseEvent): void => {
+  const target = e.target as HTMLElement | null
+  if (!target || !target.closest('.custom-dropdown')) {
     isVersionDropdownOpen.value = false
     isLoaderVerDropdownOpen.value = false
   }
 }
 
-const fetchLoaderVersions = async () => {
-  if (launchData.value.loader === 'vanilla' || !launchData.value.version || !api.value) {
+const fetchLoaderVersions = async (): Promise<void> => {
+  if (launchData.value.loader === 'vanilla' || !launchData.value.version) {
     loaderVersions.value = []
     launchData.value.loader_version = ''
     return
@@ -226,19 +267,24 @@ const fetchLoaderVersions = async () => {
   launchData.value.loader_version = ''
 
   try {
-    const versions = await api.value.get_loader_versions(launchData.value.loader, launchData.value.version)
+    const versions = await bridge.getLoaderVersions(launchData.value.loader, launchData.value.version)
     loaderVersions.value = versions || []
-  } catch (e) {
+  } catch (err) {
     loaderVersions.value = []
+  } finally {
+    isLoadingVersions.value = false
   }
-
-  isLoadingVersions.value = false
 }
 
-watch(() => launchData.value.loader, () => { fetchLoaderVersions() })
-watch(() => launchData.value.version, () => { fetchLoaderVersions() })
+watch(() => launchData.value.loader, () => {
+  fetchLoaderVersions()
+})
 
-const startGame = async () => {
+watch(() => launchData.value.version, () => {
+  fetchLoaderVersions()
+})
+
+const startGame = async (): Promise<void> => {
   if (!launchData.value.version) return
   if (!state.settings.has_ms_token && !state.settings.offline_username) return
 
@@ -247,31 +293,38 @@ const startGame = async () => {
   state.launchProgress = 0
 
   try {
-    const res = await api.value.launch_game(launchData.value.version, launchData.value.loader, launchData.value.loader_version)
+    const res = await bridge.launchGame(
+      launchData.value.version,
+      launchData.value.loader,
+      launchData.value.loader_version
+    )
     if (!res.success) {
-      showToast(t("Launch Failed"), res.message, "danger")
+      showToast(t('Launch Failed'), res.message, 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Backend communication failed."), "danger")
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e)
+    showToast(t('Error'), message || t('Backend communication failed.'), 'danger')
+  } finally {
+    setTimeout(() => {
+      isLaunching.value = false
+      state.launchProgress = 0
+      state.launchStatus = 'Ready'
+    }, 4000)
   }
-
-  setTimeout(() => {
-    isLaunching.value = false
-    state.launchProgress = 0
-    state.launchStatus = 'Ready'
-  }, 4000)
 }
 
 onMounted(async () => {
   window.addEventListener('click', closeDropdowns)
 
-  if (state.mcVersions.length === 0 && api.value) {
+  if (state.mcVersions.length === 0) {
     try {
-      state.mcVersions = await api.value.get_mc_versions()
-      if (state.mcVersions.length > 0 && !state.mcVersions[0].includes("Error")) {
+      state.mcVersions = await bridge.getMcVersions()
+      if (state.mcVersions.length > 0 && !state.mcVersions[0].includes('Error')) {
         launchData.value.version = state.mcVersions[0]
       }
-    } catch (e) {}
+    } catch (e) {
+      showToast(t('Error'), t('Failed to load Minecraft versions.'), 'danger')
+    }
   } else if (!launchData.value.version && state.mcVersions.length > 0) {
     launchData.value.version = state.mcVersions[0]
   }
