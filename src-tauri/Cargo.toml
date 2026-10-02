@@ -1,7 +1,10 @@
 [package]
 name = "kip_hub"
-version = "1.5.8"
+version = "1.6.0"
 edition = "2021"
+license = "GPL-3.0-or-later"
+authors = ["K.I.P. Studio"]
+description = "High-performance modular Minecraft management suite and client engine."
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }

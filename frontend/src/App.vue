@@ -29,7 +29,7 @@
             {{ state.appName }}<span class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-emerald-400">{{ state.appAccent }}</span>
           </h1>
           <p class="text-white/30 font-mono text-[10px] tracking-[0.4em] mb-12 uppercase border border-white/10 px-4 py-1.5 rounded-full bg-white/5 shadow-inner">
-            {{ t('Engine Version') }} {{ state.version || '1.5.6000' }}
+            {{ t('Engine Version') }} {{ state.version || '1.5.8' }}
           </p>
 
           <div class="w-full flex flex-col gap-3 relative">
@@ -79,9 +79,9 @@
           <div class="bg-black/40 border border-white/5 p-5 rounded-xl mb-6 h-64 overflow-y-auto custom-scroll text-sm text-white/70 leading-relaxed font-medium relative z-10 shadow-inner">
             NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
             <br><br>
-            This software downloads files directly from Mojang servers. A valid Minecraft license is required to play. Provided "AS IS" under the MIT License.
+            This software downloads files directly from Mojang servers. A valid Minecraft license is required to play. Provided "AS IS" under the GNU General Public License v3.0 (GPL-3.0).
             <br><br>
-            By clicking "I Accept", you agree to these terms and confirm you understand this is a third-party open-source manager. Data such as crash logs may be sent to AI providers (Google/OpenAI/Anthropic) if you explicitly use the AI Support feature. Your Microsoft tokens are stored locally. No personal data is collected by K.I.P. Studio.
+            By clicking "I Accept", you agree to these terms and confirm you understand this is a third-party open-source manager licensed under GPL-3.0. Data such as crash logs may be sent to AI providers (Google/OpenAI/Anthropic) if you explicitly use the AI Support feature. Your Microsoft tokens are stored locally. No personal data is collected by K.I.P. Studio.
           </div>
           <button @click="acceptEula" class="kip-btn-primary w-full py-4 text-lg tracking-widest uppercase shadow-[0_0_20px_rgba(99,102,241,0.4)] relative z-10">I Accept</button>
         </div>
@@ -325,14 +325,39 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch, onBeforeUnmount } from 'vue'
+import type { Component } from 'vue'
 import {
-  Hexagon, Gamepad2, Users, Minus, Square, X, Loader, Download,
-  UserX, UserPlus, UserMinus, Zap,
-  LayoutDashboard, Wand2, Puzzle, ShoppingCart, Globe, Wifi, Image as ImageIcon,
-  Terminal, LifeBuoy, Settings, CheckCircle, XCircle, Info, Activity,
-  Menu, AlignLeft, ShieldCheck
+  Hexagon,
+  Gamepad2,
+  Users,
+  Minus,
+  Square,
+  X,
+  Loader,
+  Download,
+  UserX,
+  UserPlus,
+  UserMinus,
+  Zap,
+  LayoutDashboard,
+  Wand2,
+  Puzzle,
+  ShoppingCart,
+  Globe,
+  Wifi,
+  Image as ImageIcon,
+  Terminal,
+  LifeBuoy,
+  Settings,
+  CheckCircle,
+  XCircle,
+  Info,
+  Activity,
+  Menu,
+  AlignLeft,
+  ShieldCheck,
 } from 'lucide-vue-next'
 
 import Dashboard from '@/views/Dashboard.vue'
@@ -350,39 +375,66 @@ import AppSettings from '@/views/Settings.vue'
 import Overlay from '@/views/Overlay.vue'
 
 import {
-  state, t, showToast, toasts, loadSettings, loadTranslations, loadDashboardStats,
-  windowMinimize, windowMaximize, windowClose, toggleBigPicture, sanitizeHTML, getAvatarUrl,
-  leaveVoiceChannel, acceptPartyInvite, declinePartyInvite,
-  initGamepadMode, acceptEula, setupTauriListeners
-} from './store.js'
-import { bridge } from './bridge.js'
+  state,
+  t,
+  showToast,
+  toasts,
+  loadSettings,
+  loadTranslations,
+  loadDashboardStats,
+  windowMinimize,
+  windowMaximize,
+  windowClose,
+  toggleBigPicture,
+  sanitizeHTML,
+  getAvatarUrl,
+  leaveVoiceChannel,
+  acceptPartyInvite,
+  declinePartyInvite,
+  initGamepadMode,
+  acceptEula,
+  setupTauriListeners,
+} from '@/store'
+import {
+  bridge,
+  type GenericActionResult,
+  type ImportDroppedModsResult,
+} from '@/bridge'
 
-const isSidebarCollapsed = ref(false)
-const isUpdating = ref(false)
-const hasUpdate = ref(false)
-const isMsAuthing = ref(false)
-const msAuthCode = ref('')
-const newFriendName = ref('')
-const isFriendsLoading = ref(false)
-const nexusTab = ref('xbox')
+interface KipAuthFormState {
+  isLogin: boolean
+  username: string
+  email: string
+  password: string
+  loading: boolean
+}
 
-let mouseIdleTimer = null
+const isSidebarCollapsed = ref<boolean>(false)
+const isUpdating = ref<boolean>(false)
+const hasUpdate = ref<boolean>(false)
+const isMsAuthing = ref<boolean>(false)
+const msAuthCode = ref<string>('')
+const newFriendName = ref<string>('')
+const isFriendsLoading = ref<boolean>(false)
+const nexusTab = ref<'xbox' | 'kip'>('xbox')
 
-const kipAuthForm = reactive({
+let mouseIdleTimer: ReturnType<typeof setTimeout> | null = null
+
+const kipAuthForm = reactive<KipAuthFormState>({
   isLogin: true,
   username: '',
   email: '',
   password: '',
-  loading: false
+  loading: false,
 })
 
-const bootLogs = ref([
-  "INITIALIZING NEURAL CORE...",
-  "ALLOCATING MEMORY BLOCKS...",
-  "ESTABLISHING SECURE CONNECTION...",
+const bootLogs = ref<string[]>([
+  'INITIALIZING NEURAL CORE...',
+  'ALLOCATING MEMORY BLOCKS...',
+  'ESTABLISHING SECURE CONNECTION...',
 ])
 
-const viewsMap = {
+const viewsMap: Record<string, Component> = {
   dashboard: Dashboard,
   launcher: Launcher,
   builder: Builder,
@@ -394,25 +446,36 @@ const viewsMap = {
   media: Media,
   console: Console,
   support: Support,
-  settings: AppSettings
+  settings: AppSettings,
 }
 
-const currentViewComponent = computed(() => {
+const currentViewComponent = computed<Component>(() => {
   return viewsMap[state.currentView] || Dashboard
 })
 
-const iconsMap = {
-  'layout-dashboard': LayoutDashboard, 'gamepad-2': Gamepad2, 'wand-2': Wand2, 'puzzle': Puzzle,
-  'shopping-cart': ShoppingCart, 'globe': Globe, 'wifi': Wifi, 'zap': Zap, 'image': ImageIcon,
-  'terminal': Terminal, 'life-buoy': LifeBuoy, 'settings': Settings, 'check-circle': CheckCircle,
-  'x-circle': XCircle, 'info': Info
+const iconsMap: Record<string, Component> = {
+  'layout-dashboard': LayoutDashboard,
+  'gamepad-2': Gamepad2,
+  'wand-2': Wand2,
+  puzzle: Puzzle,
+  'shopping-cart': ShoppingCart,
+  globe: Globe,
+  wifi: Wifi,
+  zap: Zap,
+  image: ImageIcon,
+  terminal: Terminal,
+  'life-buoy': LifeBuoy,
+  settings: Settings,
+  'check-circle': CheckCircle,
+  'x-circle': XCircle,
+  info: Info,
 }
 
-const getIcon = (name) => {
+const getIcon = (name: string): Component => {
   return iconsMap[name] || Info
 }
 
-const formatInstanceName = (path) => {
+const formatInstanceName = (path: string): string => {
   if (!path) return 'Instance'
   const p = path.toLowerCase().replace(/\\/g, '/')
   if (p.endsWith('.minecraft') || p.endsWith('.minecraft/')) {
@@ -423,13 +486,13 @@ const formatInstanceName = (path) => {
   return name || path
 }
 
-const handleMouseMove = () => {
+const handleMouseMove = (): void => {
   if (!state.isBigPicture) {
     document.body.classList.remove('cursor-none')
     return
   }
   document.body.classList.remove('cursor-none')
-  clearTimeout(mouseIdleTimer)
+  if (mouseIdleTimer) clearTimeout(mouseIdleTimer)
   mouseIdleTimer = setTimeout(() => {
     if (state.isBigPicture) {
       document.body.classList.add('cursor-none')
@@ -437,7 +500,7 @@ const handleMouseMove = () => {
   }, 3000)
 }
 
-const handleGlobalKeyDown = (e) => {
+const handleGlobalKeyDown = (e: KeyboardEvent): void => {
   if (e.shiftKey && (e.key === 'Tab' || e.keyCode === 9)) {
     e.preventDefault()
     e.stopPropagation()
@@ -445,7 +508,7 @@ const handleGlobalKeyDown = (e) => {
   }
 }
 
-const toggleOverlayState = () => {
+const toggleOverlayState = (): void => {
   state.isOverlayActive = !state.isOverlayActive
   if (state.isOverlayActive) {
     document.body.classList.add('in-game-overlay')
@@ -456,7 +519,33 @@ const toggleOverlayState = () => {
   }
 }
 
-const initApp = async () => {
+const checkForAppUpdates = async (): Promise<void> => {
+  try {
+    const res = await bridge.checkAppUpdate()
+    if (res && res.has_update) {
+      hasUpdate.value = true
+      showToast(t('Update Available'), `Version ${res.version} is ready to install.`, 'info')
+    }
+  } catch {
+    // Ignored in offline environment
+  }
+}
+
+const performUpdate = async (): Promise<void> => {
+  isUpdating.value = true
+  try {
+    const res = await bridge.performAppUpdate()
+    if (!res) {
+      isUpdating.value = false
+    }
+  } catch (err: unknown) {
+    isUpdating.value = false
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    showToast(t('Update Error'), errorMessage || t('Failed to download or install update.'), 'danger')
+  }
+}
+
+const initApp = async (): Promise<void> => {
   try {
     const initData = await bridge.getInitData()
     if (initData) {
@@ -465,41 +554,48 @@ const initApp = async () => {
       state.greeting = initData.greeting
       state.version = initData.version
     }
-  } catch (e) {}
+  } catch {
+    // Fallback retains default reactive constants
+  }
 
   await loadSettings()
   await loadTranslations()
-  loadDashboardStats()
+  await loadDashboardStats()
+  await checkForAppUpdates()
 
   window.addEventListener('mousemove', handleMouseMove)
   window.addEventListener('keydown', handleGlobalKeyDown)
 
   const phases = [
-    { target: 15, text: "MOUNTING VIRTUAL FILE SYSTEMS...", log: "VFS: Mounted successfully." },
-    { target: 35, text: "LOADING MACHINE LEARNING MODELS...", log: "AI: Models initialized." },
-    { target: 60, text: "ESTABLISHING P2P NODES...", log: "NETWORK: Swarm nodes active." },
-    { target: 85, text: "CALIBRATING ENGINE INTERFACE...", log: "UI: Render pipeline ready." },
-    { target: 100, text: "SYSTEM NOMINAL. WELCOME.", log: "BOOT: Sequence complete." }
+    { target: 15, text: 'MOUNTING VIRTUAL FILE SYSTEMS...', log: 'VFS: Mounted successfully.' },
+    { target: 35, text: 'LOADING MACHINE LEARNING MODELS...', log: 'AI: Models initialized.' },
+    { target: 60, text: 'ESTABLISHING P2P NODES...', log: 'NETWORK: Swarm nodes active.' },
+    { target: 85, text: 'CALIBRATING ENGINE INTERFACE...', log: 'UI: Render pipeline ready.' },
+    { target: 100, text: 'SYSTEM NOMINAL. WELCOME.', log: 'BOOT: Sequence complete.' },
   ]
 
   let currentPhase = 0
 
-  const animateProgress = () => {
+  const animateProgress = (): void => {
     if (currentPhase >= phases.length) {
-      setTimeout(() => { state.showBoot = false }, 1000)
+      setTimeout(() => {
+        state.showBoot = false
+      }, 1000)
       return
     }
 
-    const target = phases[currentPhase].target
-    state.bootText = phases[currentPhase].text
+    const phase = phases[currentPhase]
+    if (!phase) return
+    const target = phase.target
+    state.bootText = phase.text
 
-    const step = () => {
+    const step = (): void => {
       if (state.bootProgress < target) {
-        state.bootProgress += (Math.random() * 3 + 1)
+        state.bootProgress += Math.random() * 3 + 1
         if (state.bootProgress > target) state.bootProgress = target
         requestAnimationFrame(step)
       } else {
-        bootLogs.value.push(phases[currentPhase].log)
+        bootLogs.value.push(phase.log)
         if (bootLogs.value.length > 5) bootLogs.value.shift()
         currentPhase++
         setTimeout(animateProgress, 250)
@@ -511,71 +607,72 @@ const initApp = async () => {
   setTimeout(animateProgress, 300)
 }
 
-const changeInstance = async () => {
+const changeInstance = async (): Promise<void> => {
   if (state.settings.mc_dir) {
     try {
       const res = await bridge.saveSetting('mc_dir', state.settings.mc_dir)
       if (res) {
-        showToast(t("Instance Changed"), t("Switched game directory"), "success")
-        loadDashboardStats()
+        showToast(t('Instance Changed'), t('Switched game directory'), 'success')
+        await loadDashboardStats()
       }
-    } catch (e) {}
-  }
-}
-
-const performUpdate = async () => {
-  isUpdating.value = true
-  try {
-    const res = await bridge.invoke('perform_update')
-    if (!res) {
-      isUpdating.value = false
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      showToast(t('Error'), errorMessage || t('Failed to switch instance directory.'), 'danger')
     }
-  } catch (e) {
-    isUpdating.value = false
   }
 }
 
-const loadFriends = async () => {
+const loadFriends = async (): Promise<void> => {
   isFriendsLoading.value = true
   try {
-    state.friends = await bridge.getFriends() || []
-  } catch (e) {}
-  isFriendsLoading.value = false
+    state.friends = (await bridge.getFriends()) || []
+  } catch {
+    state.friends = []
+  } finally {
+    isFriendsLoading.value = false
+  }
 }
 
-const addFriend = async () => {
-  if (!newFriendName.value.trim()) return
+const addFriend = async (): Promise<void> => {
+  const clean = newFriendName.value.trim()
+  if (!clean) return
   try {
-    const res = await bridge.addFriend(newFriendName.value.trim())
-    if (res?.success) {
-      showToast(t("Success"), res.msg, "success")
+    const res: GenericActionResult = await bridge.addFriend(clean)
+    if (res.success) {
+      showToast(t('Success'), res.msg, 'success')
       newFriendName.value = ''
-      loadFriends()
+      await loadFriends()
     } else {
-      showToast(t("Error"), res?.msg || t("Failed to add friend"), "danger")
+      showToast(t('Error'), res.msg, 'danger')
     }
-  } catch (e) {}
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), errorMessage || t('Failed to add friend'), 'danger')
+  }
 }
 
-const removeFriend = async (name) => {
+const removeFriend = async (name: string): Promise<void> => {
   try {
-    const res = await bridge.removeFriend(name)
-    if (res?.success) {
-      showToast(t("Removed"), res.msg, "success")
-      loadFriends()
+    const res: GenericActionResult = await bridge.removeFriend(name)
+    if (res.success) {
+      showToast(t('Removed'), res.msg, 'success')
+      await loadFriends()
     } else {
-      showToast(t("Error"), res?.msg || t("Failed to remove friend"), "danger")
+      showToast(t('Error'), res.msg, 'danger')
     }
-  } catch (e) {}
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), errorMessage || t('Failed to remove friend'), 'danger')
+  }
 }
 
-const startMsAuth = async () => {
+const startMsAuth = async (): Promise<void> => {
   isMsAuthing.value = true
   msAuthCode.value = ''
   try {
     const res = await bridge.msAuthStart()
     if (!res) {
-      showToast(t("Error"), t("Could not reach Microsoft."), "danger")
+      showToast(t('Error'), t('Could not reach Microsoft.'), 'danger')
       isMsAuthing.value = false
       return
     }
@@ -588,132 +685,166 @@ const startMsAuth = async () => {
       const authSuccess = await bridge.msAuthPoll(res.device_code)
       if (authSuccess) {
         await loadSettings()
-        showToast(t("Authenticated"), t("Xbox account linked."), "success")
+        showToast(t('Authenticated'), t('Xbox account linked.'), 'success')
         break
       }
-      await new Promise(r => setTimeout(r, 5000))
+      await new Promise((r) => setTimeout(r, 5000))
     }
-  } catch (e) {}
-  isMsAuthing.value = false
-  msAuthCode.value = ''
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), errorMessage || t('Microsoft OAuth failed.'), 'danger')
+  } finally {
+    isMsAuthing.value = false
+    msAuthCode.value = ''
+  }
 }
 
-const logoutMs = async () => {
+const logoutMs = async (): Promise<void> => {
   try {
     await bridge.msLogout()
     await loadSettings()
-    showToast(t("Logged out"), t("Account unlinked."), "info")
-  } catch (e) {}
+    showToast(t('Logged out'), t('Account unlinked.'), 'info')
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), errorMessage || t('Failed to unlink account.'), 'danger')
+  }
 }
 
-const submitKipAuth = async () => {
+const submitKipAuth = async (): Promise<void> => {
   if (kipAuthForm.loading) return
 
-  if (!kipAuthForm.username || !kipAuthForm.password) {
-    showToast(t("Error"), t("Please fill in all required fields."), "danger")
+  if (!kipAuthForm.username.trim() || !kipAuthForm.password.trim()) {
+    showToast(t('Error'), t('Please fill in all required fields.'), 'danger')
     return
   }
 
-  if (!kipAuthForm.isLogin && !kipAuthForm.email) {
-    showToast(t("Error"), t("Email is required for registration."), "danger")
+  if (!kipAuthForm.isLogin && !kipAuthForm.email.trim()) {
+    showToast(t('Error'), t('Email is required for registration.'), 'danger')
     return
   }
 
   kipAuthForm.loading = true
   try {
-    let res
+    let res: { success: boolean; token?: string; username?: string; msg?: string }
     if (kipAuthForm.isLogin) {
-      res = await bridge.kipLogin(kipAuthForm.username, kipAuthForm.password)
+      res = await bridge.kipLogin(kipAuthForm.username.trim(), kipAuthForm.password)
     } else {
-      res = await bridge.kipRegister(kipAuthForm.username, kipAuthForm.email, kipAuthForm.password)
+      res = await bridge.kipRegister(
+        kipAuthForm.username.trim(),
+        kipAuthForm.email.trim(),
+        kipAuthForm.password
+      )
     }
 
     if (res?.success) {
-      showToast(t("Success"), kipAuthForm.isLogin ? t("Logged in to K.I.P. Network") : t("K.I.P. Account created"), "success")
+      showToast(
+        t('Success'),
+        kipAuthForm.isLogin ? t('Logged in to K.I.P. Network') : t('K.I.P. Account created'),
+        'success'
+      )
       await loadSettings()
       kipAuthForm.password = ''
     } else {
-      showToast(t("Error"), res?.msg || t("Authentication failed."), "danger")
+      showToast(t('Error'), res?.msg || t('Authentication failed.'), 'danger')
     }
-  } catch (e) {
-    showToast(t("Error"), t("Backend communication failed."), "danger")
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), errorMessage || t('Backend communication failed.'), 'danger')
+  } finally {
+    kipAuthForm.loading = false
   }
-  kipAuthForm.loading = false
 }
 
-const logoutKip = async () => {
+const logoutKip = async (): Promise<void> => {
   try {
     await bridge.kipLogout()
     await loadSettings()
-    showToast(t("Logged out"), t("Disconnected from K.I.P. Network."), "info")
-  } catch (e) {}
+    showToast(t('Logged out'), t('Disconnected from K.I.P. Network.'), 'info')
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), errorMessage || t('Failed to disconnect.'), 'danger')
+  }
 }
 
-const handleFileDrop = async (e) => {
+const handleFileDrop = async (e: DragEvent): Promise<void> => {
   e.preventDefault()
   e.stopPropagation()
-  if (e.dataTransfer?.files?.length > 0) {
-    const filePaths = Array.from(e.dataTransfer.files).map(f => f.path).filter(Boolean)
+  if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+    const filePaths = Array.from(e.dataTransfer.files)
+      .map((f) => (f as unknown as { path?: string }).path)
+      .filter((p): p is string => typeof p === 'string' && p.length > 0)
+
     if (filePaths.length > 0) {
       try {
-        const res = await bridge.importDroppedMods(filePaths)
-        if (res?.success) {
-          showToast(t("Imported"), `${t('Successfully imported')} ${res.count} ${t('items.')}`, "success")
+        const res: ImportDroppedModsResult = await bridge.importDroppedMods(filePaths)
+        if (res.success) {
+          showToast(
+            t('Imported'),
+            `${t('Successfully imported')} ${res.count} ${t('items.')}`,
+            'success'
+          )
         } else {
-          showToast(t("Import Error"), res?.msg || t("Failed to import files."), "danger")
+          showToast(t('Import Error'), res.msg || t('Failed to import files.'), 'danger')
         }
-      } catch (err) {
-        showToast(t("Error"), t("Failed to import files."), "danger")
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        showToast(t('Error'), errorMessage || t('Failed to import files.'), 'danger')
       }
     }
   }
 }
 
-watch(() => state.isNexusOpen, (val) => {
-  if (val) loadFriends()
-})
+watch(
+  () => state.isNexusOpen,
+  (val) => {
+    if (val) loadFriends()
+  }
+)
 
 onMounted(() => {
   setupTauriListeners({
-    onDaemonStatus: (isRunning, status) => {
+    onDaemonStatus: (isRunning: boolean, status: string) => {
       state.isMcRunning = isRunning
       state.mcStatusText = status
     },
-    onConsoleLine: (line) => {
+    onConsoleLine: (line: string) => {
       let safeLine = sanitizeHTML(line)
-      if (safeLine.includes("ERROR") || safeLine.includes("Exception")) {
+      if (safeLine.includes('ERROR') || safeLine.includes('Exception')) {
         safeLine = `<span class="text-red-400">${safeLine}</span>`
-      } else if (safeLine.includes("WARN")) {
+      } else if (safeLine.includes('WARN')) {
         safeLine = `<span class="text-amber-400">${safeLine}</span>`
       }
       state._consoleBuffer.push(safeLine)
       if (state._consoleBuffer.length > 300) state._consoleBuffer.shift()
-      state.consoleHtml = state._consoleBuffer.join("<br>")
+      state.consoleHtml = state._consoleBuffer.join('<br>')
     },
-    onCrashAlert: (logData) => {
-      showToast(t("CRASH DETECTED"), t("Minecraft exited abnormally."), "danger")
+    onCrashAlert: (logData: string) => {
+      showToast(t('CRASH DETECTED'), t('Minecraft exited abnormally.'), 'danger')
       state.aiInputText = logData
       state.currentView = 'support'
     },
-    onLaunchStatus: (msg) => {
-      state.launchStatus = msg
+    onLaunchStatus: (launchMessage: string) => {
+      state.launchStatus = launchMessage
     },
-    onLaunchProgress: (progress) => {
+    onLaunchProgress: (progress: number) => {
       state.launchProgress = progress
     },
-    onTunnelStatus: (msg) => {
-      if (msg.includes("Error") || msg.includes("NO_SSH")) {
-        showToast(t("Tunnel Error"), msg, "danger")
+    onTunnelStatus: (tunnelMessage: string) => {
+      if (tunnelMessage.includes('Error') || tunnelMessage.includes('NO_SSH')) {
+        showToast(t('Tunnel Error'), tunnelMessage, 'danger')
       } else {
-        showToast(t("Tunnel Online"), `TCP: ${msg}`, "success")
+        showToast(t('Tunnel Online'), `TCP: ${tunnelMessage}`, 'success')
       }
     },
     onToggleOverlay: () => {
       toggleOverlayState()
-    }
+    },
   })
 
-  document.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); })
+  document.addEventListener('dragover', (e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  })
   document.addEventListener('drop', handleFileDrop)
 
   initApp()
@@ -724,6 +855,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('mousemove', handleMouseMove)
   window.removeEventListener('keydown', handleGlobalKeyDown)
   document.removeEventListener('drop', handleFileDrop)
+  if (mouseIdleTimer) clearTimeout(mouseIdleTimer)
   leaveVoiceChannel()
 })
 </script>

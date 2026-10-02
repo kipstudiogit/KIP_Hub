@@ -165,7 +165,7 @@
                 </div>
                 <div>
                   <h4 class="font-extrabold text-white text-lg tracking-wider">K.I.P. <span class="text-indigo-400">Engine</span></h4>
-                  <p class="text-xs text-white/50 font-mono mt-1">v{{ state.version || '1.5.6000' }} • by K.I.P. Studio</p>
+                  <p class="text-xs text-white/50 font-mono mt-1">v{{ state.version || '1.5.8' }} • by K.I.P. Studio</p>
                 </div>
               </div>
             </div>
@@ -321,10 +321,10 @@
             </button>
           </div>
 
-          <div class="flex-1 overflow-y-auto custom-scroll p-8 relative z-10 text-sm text-white/80 leading-relaxed whitespace-pre-wrap bg-[#050505]/80 font-medium">{{ t("NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.\n\nThis software downloads files directly from Mojang servers. A valid Minecraft license is required to play. Provided 'AS IS' under the MIT License.") }}</div>
+          <div class="flex-1 overflow-y-auto custom-scroll p-8 relative z-10 text-sm text-white/80 leading-relaxed whitespace-pre-wrap bg-[#050505]/80 font-medium">{{ t("NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.\n\nThis software downloads files directly from Mojang servers. A valid Minecraft license is required to play. Provided 'AS IS' under the GNU General Public License v3.0 (GPL-3.0).") }}</div>
 
           <div class="p-6 border-t border-white/5 bg-black/40 shrink-0 flex justify-end relative z-10">
-             <button @click="legalModal.isOpen = false" class="kip-btn-primary px-8 py-3">{{ t('Close') }}</button>
+            <button @click="legalModal.isOpen = false" class="kip-btn-primary px-8 py-3">{{ t('Close') }}</button>
           </div>
         </div>
       </div>
@@ -332,20 +332,38 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import {
-  Sparkles, Info, X, Cpu, Box, Settings as SettingsIcon,
-  FileText, Hexagon, ShieldCheck, ChevronDown, Bot, Server,
-  Rocket, Shield, FolderOpen
+  Sparkles,
+  Info,
+  X,
+  Cpu,
+  Box,
+  Settings as SettingsIcon,
+  FileText,
+  Hexagon,
+  ShieldCheck,
+  ChevronDown,
+  Bot,
+  Server,
+  Rocket,
+  Shield,
+  FolderOpen,
 } from 'lucide-vue-next'
-import { state, api, t, saveSetting, showToast } from '@/store.js'
+import { state, t, saveSetting, showToast, type SettingsState } from '@/store'
+import { bridge } from '@/bridge'
 
-const legalModal = ref({ isOpen: false })
-const isLangDropdownOpen = ref(false)
-const isProviderDropdownOpen = ref(false)
+interface SelectOption<T = string> {
+  value: T
+  label: string
+}
 
-const langOptions = [
+const legalModal = ref<{ isOpen: boolean }>({ isOpen: false })
+const isLangDropdownOpen = ref<boolean>(false)
+const isProviderDropdownOpen = ref<boolean>(false)
+
+const langOptions: SelectOption[] = [
   { value: 'en', label: 'English' },
   { value: 'ru', label: 'Русский' },
   { value: 'es', label: 'Español' },
@@ -357,64 +375,65 @@ const langOptions = [
   { value: 'pt', label: 'Português' },
   { value: 'it', label: 'Italiano' },
   { value: 'pl', label: 'Polski' },
-  { value: 'tr', label: 'Türkçe' }
+  { value: 'tr', label: 'Türkçe' },
 ]
 
-const providerOptions = [
+const providerOptions: SelectOption[] = [
   { value: 'google', label: 'Google Gemini' },
   { value: 'openai', label: 'OpenAI ChatGPT' },
   { value: 'anthropic', label: 'Anthropic Claude' },
-  { value: 'ollama', label: 'Ollama (Local AI)' }
+  { value: 'ollama', label: 'Ollama (Local AI)' },
 ]
 
-const saveTextSetting = async (key) => {
+const saveTextSetting = async (key: keyof SettingsState): Promise<void> => {
   const result = await saveSetting(key, state.settings[key])
   if (result) {
-    showToast(t("Saved"), t("Settings updated successfully."), "success")
+    showToast(t('Saved'), t('Settings updated successfully.'), 'success')
   } else {
-    showToast(t("Error"), t("Failed to save setting."), "danger")
+    showToast(t('Error'), t('Failed to save setting.'), 'danger')
   }
 }
 
-const toggleSetting = async (key) => {
-  const newValue = !state.settings[key]
+const toggleSetting = async (key: keyof SettingsState): Promise<void> => {
+  const currentValue = Boolean(state.settings[key])
+  const newValue = !currentValue
   const result = await saveSetting(key, newValue)
   if (!result) {
-    state.settings[key] = !newValue
-    showToast(t("Error"), t("Failed to save setting."), "danger")
+    (state.settings as Record<string, unknown>)[key] = currentValue
+    showToast(t('Error'), t('Failed to save setting.'), 'danger')
   }
 }
 
-const selectLang = (val) => {
+const selectLang = (val: string): void => {
   state.settings.lang = val
   saveTextSetting('lang')
   isLangDropdownOpen.value = false
 }
 
-const selectProvider = (val) => {
+const selectProvider = (val: string): void => {
   state.settings.ai_provider = val
   saveTextSetting('ai_provider')
   isProviderDropdownOpen.value = false
 }
 
-const closeDropdowns = (e) => {
-  if (!e.target.closest('.custom-dropdown')) {
+const closeDropdowns = (e: MouseEvent): void => {
+  const target = e.target as HTMLElement | null
+  if (!target || !target.closest('.custom-dropdown')) {
     isLangDropdownOpen.value = false
     isProviderDropdownOpen.value = false
   }
 }
 
-const pickJavaPath = async () => {
-  if (api.value) {
-    try {
-      const path = await api.value.pick_file()
-      if (path && typeof path === 'string' && path.trim().length > 0) {
-        state.settings.custom_java_path = path.trim()
-        saveTextSetting('custom_java_path')
-      }
-    } catch (e) {
-      showToast(t("Error"), t("Failed to pick Java path."), "danger")
+const pickJavaPath = async (): Promise<void> => {
+  try {
+    const path = await bridge.pickFile()
+    if (path && typeof path === 'string' && path.trim().length > 0) {
+      state.settings.custom_java_path = path.trim()
+      await saveTextSetting('custom_java_path')
     }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    showToast(t('Error'), msg || t('Failed to pick Java path.'), 'danger')
   }
 }
 
