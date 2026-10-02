@@ -27,14 +27,24 @@
       </div>
 
       <div class="relative z-10">
-        <div v-if="!voiceState.isConnected" class="flex flex-col gap-4 max-w-2xl">
+        <div v-if="!voiceState.isConnected" class="flex flex-col gap-5 max-w-3xl">
           <p class="text-sm text-white/50 leading-relaxed font-medium">
             {{ t('Create or join a voice room instantly. Type a name or generate a random one to share with friends!') }}
           </p>
+
+          <div class="flex gap-2 p-1 bg-black/40 rounded-xl border border-white/5 w-fit">
+            <button @click="networkMode = 'global'" class="px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2" :class="networkMode === 'global' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-white/50 hover:text-white'">
+              <Globe class="w-3.5 h-3.5" /> Global Cloud (Internet)
+            </button>
+            <button @click="networkMode = 'lan'" class="px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2" :class="networkMode === 'lan' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'text-white/50 hover:text-white'">
+              <Radio class="w-3.5 h-3.5" /> Local Network (LAN / Direct)
+            </button>
+          </div>
+
           <div class="flex gap-3">
             <div class="relative flex-1">
               <Hash class="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 w-4 h-4" />
-              <input v-model="connectChannel" @keyup.enter="handleJoinVoice" type="text" :placeholder="t('Room name (e.g. survival)')" class="kip-input pl-11 pr-12">
+              <input v-model="connectChannel" @keyup.enter="handleJoinVoice" type="text" :placeholder="networkMode === 'global' ? t('Room key (e.g. survival)') : t('Host IP:Port or Room key (e.g. 192.168.1.5:8765)')" class="kip-input pl-11 pr-12">
               <button @click="connectChannel = generateRandomRoom()" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-white/40 hover:text-emerald-400 transition rounded-lg hover:bg-white/5" :title="t('Generate Random Room')">
                 <Dices class="w-4 h-4" />
               </button>
@@ -42,6 +52,11 @@
             <button @click="handleJoinVoice" class="kip-btn-primary px-8 py-3 bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)]">
               <PhoneCall class="w-4 h-4 fill-current" /> {{ connectChannel ? t('Join Room') : t('Quick Start') }}
             </button>
+          </div>
+
+          <div v-if="networkMode === 'lan'" class="text-[11px] font-mono text-white/40 flex items-center gap-2">
+            <span>Your local signaling engine:</span>
+            <span class="text-indigo-400 bg-white/5 px-2 py-0.5 rounded border border-white/5 cursor-pointer" @click="copyLocalHost">ws://localhost:8765</span>
           </div>
         </div>
 
@@ -345,6 +360,7 @@ import {
   Hash,
   Dices,
   PhoneCall,
+  Globe,
 } from 'lucide-vue-next'
 import { SkinViewer, WalkingAnimation, RunningAnimation, IdleAnimation } from 'skinview3d'
 import {
@@ -392,6 +408,7 @@ type DockerCoreType = 'paper' | 'fabric' | 'forge' | 'vanilla'
 const netIp = ref<string>('')
 const isPinging = ref<boolean>(false)
 const pingResult = ref<ServerPingResultDto | null>(null)
+const networkMode = ref<'global' | 'lan'>('global')
 
 const netNick = ref<string>('')
 const isSkinLoading = ref<boolean>(false)
@@ -444,11 +461,31 @@ const generateRandomRoom = (): string => {
   return 'kip-' + Math.random().toString(36).substring(2, 6)
 }
 
+const copyLocalHost = async (): Promise<void> => {
+  try {
+    await navigator.clipboard.writeText('127.0.0.1:8765')
+    showToast(t('Copied'), 'Local signaling host copied to clipboard', 'success')
+  } catch {
+  }
+}
+
 const handleJoinVoice = (): void => {
   if (!connectChannel.value) {
     connectChannel.value = generateRandomRoom()
   }
-  joinVoiceChannel(connectChannel.value)
+  const cleanInput = connectChannel.value.trim()
+  if (networkMode.value === 'lan') {
+    if (cleanInput.includes(':')) {
+      const parts = cleanInput.split('/')
+      const hostPart = parts[0]
+      const roomPart = parts[1] || 'lan-room'
+      joinVoiceChannel(roomPart, hostPart)
+    } else {
+      joinVoiceChannel(cleanInput, '127.0.0.1:8765')
+    }
+  } else {
+    joinVoiceChannel(cleanInput, 'wss://kip-backend.noisyfutlor98.workers.dev/ws')
+  }
 }
 
 const toggleMicTest = (): void => {
@@ -496,7 +533,6 @@ const pingServer = async (): Promise<void> => {
         }
       }
     } catch {
-      // Ignored
     }
   }
 
@@ -575,7 +611,6 @@ const stopTunnel = (): void => {
   try {
     bridge.stopTunnel()
   } catch {
-    // Ignored
   }
   showToast(t('Tunnel'), t('Tunnel stopped.'), 'info')
 }
@@ -648,7 +683,6 @@ const startPteroPolling = (): void => {
           updateSelectedPteroServer()
         }
       } catch {
-        // Ignored in polling
       }
     }, 5000)
   }

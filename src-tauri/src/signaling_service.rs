@@ -51,6 +51,7 @@ impl SignalingService {
         matches!(
             msg_type,
             "ping"
+                | "pong"
                 | "offer"
                 | "answer"
                 | "ice-candidate"

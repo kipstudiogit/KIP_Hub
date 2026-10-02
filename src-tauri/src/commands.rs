@@ -21,6 +21,8 @@ use crate::mod_manager::ModManager;
 use crate::monitor_service::MonitorService;
 use crate::shield_manager::ShieldManager;
 use crate::swarm_manager::SwarmManager;
+use crate::system_utils::SystemUtils;
+use crate::tool_manager::ToolManager;
 use crate::tunnel_manager::TunnelManager;
 use crate::vcs_manager::VCSManager;
 use crate::world_manager::WorldManager;
@@ -380,6 +382,43 @@ pub async fn launch_game(
     loader: String,
     loader_version: Option<String>,
 ) -> Result<LaunchResult, String> {
+    let resolved_version = if version.trim().is_empty() || version == "latest" || version == "auto" {
+        match get_mc_versions().await {
+            Ok(v_list) if !v_list.is_empty() => v_list[0].clone(),
+            _ => "1.21.1".to_string(),
+        }
+    } else {
+        version.trim().to_string()
+    };
+
+    let resolved_loader = if loader.trim().is_empty() {
+        "vanilla".to_string()
+    } else {
+        loader.trim().to_lowercase()
+    };
+
+    let mut cfg = config::load_app_config();
+    let mc_dir = cfg.current_instance.clone();
+    let saves_path = Path::new(&mc_dir).join("saves");
+    let backups_path = Path::new(&mc_dir).join("backups_devkit");
+
+    let _ = app.emit("updateLaunchStatus", "Performing pre-flight self-healing...");
+    let _ = app.emit("updateLaunchProgress", 15);
+
+    let saves_str = saves_path.to_string_lossy().to_string();
+    let backups_str = backups_path.to_string_lossy().to_string();
+    let auto_backup_flag = cfg.auto_backup;
+
+    tokio::task::spawn_blocking(move || {
+        ToolManager::unlock_worlds(&saves_str);
+        SystemUtils::kill_zombie_processes();
+        if auto_backup_flag {
+            ToolManager::create_backup(&saves_str, &backups_str);
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
     let token = config::get_secret("ms_access_token");
     let mut account = json!({
         "name": "Player",
@@ -394,36 +433,40 @@ pub async fn launch_game(
     }
 
     if account["access_token"].as_str() == Some("0") {
-        let cfg = config::load_app_config();
         let off_name = if !cfg.offline_username.trim().is_empty() {
-            cfg.offline_username
+            cfg.offline_username.clone()
         } else {
-            "Player".to_string()
+            let random_suffix = &uuid::Uuid::new_v4().simple().to_string()[..4];
+            let generated = format!("Player_{}", random_suffix);
+            cfg.offline_username = generated.clone();
+            config::save_app_config(&cfg);
+            generated
         };
+
         let mut hasher = Sha1::new();
         hasher.update(off_name.as_bytes());
         let hash = hasher.finalize();
         let mut uuid_bytes = [0u8; 16];
         uuid_bytes.copy_from_slice(&hash[..16]);
         let offline_uuid = uuid::Uuid::from_bytes(uuid_bytes).simple().to_string();
+
         account["name"] = json!(off_name);
         account["uuid"] = json!(offline_uuid);
     }
 
-    let cfg = config::load_app_config();
-    let mc_dir = cfg.current_instance.clone();
-
-    let _ = app.emit("updateLaunchStatus", "Starting Minecraft process...");
+    let _ = app.emit("updateLaunchStatus", "Resolving manifests and libraries...");
+    let _ = app.emit("updateLaunchProgress", 45);
 
     let lv = loader_version.unwrap_or_default();
     match state
         .instance
-        .launch_game(&version, &loader, &lv, &mc_dir, &account, &app)
+        .launch_game(&resolved_version, &resolved_loader, &lv, &mc_dir, &account, &app)
         .await
     {
         Ok((msg, pid)) => {
             state.monitor.set_game_pid(pid);
-            let _ = app.emit("updateLaunchStatus", "Launched successfully");
+            let _ = app.emit("updateLaunchStatus", "Minecraft process initialized");
+            let _ = app.emit("updateLaunchProgress", 100);
             Ok(LaunchResult {
                 success: true,
                 message: msg,
@@ -431,7 +474,7 @@ pub async fn launch_game(
             })
         }
         Err(e) => {
-            let _ = app.emit("updateLaunchStatus", format!("Error: {}", e));
+            let _ = app.emit("updateLaunchStatus", format!("Ignition failure: {}", e));
             Ok(LaunchResult {
                 success: false,
                 message: e,

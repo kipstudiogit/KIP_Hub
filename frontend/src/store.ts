@@ -119,8 +119,12 @@ interface WebRTCPeer {
   audioCtx: AudioContext | null
   audioEl: HTMLAudioElement | null
   name: string
-  pendingCandidates: RTCIceCandidate[]
+  makingOffer: boolean
+  ignoreOffer: boolean
+  isSettingRemoteAnswerPending: boolean
+  pendingCandidates: RTCIceCandidateInit[]
   lastSpokeTime: number
+  polite: boolean
 }
 
 export const api = ref(bridge)
@@ -224,9 +228,9 @@ let localStream: MediaStream | null = null
 let localDummyAudio: HTMLAudioElement | null = null
 let audioContext: AudioContext | null = null
 let localAnalyser: AnalyserNode | null = null
-let gateGainNode: GainNode | null = null
-let noiseFloor = 15
-let vadAnimationId: number | null = null
+let expanderGainNode: GainNode | null = null
+let adaptiveNoiseFloor = 10
+let vadIntervalId: ReturnType<typeof setInterval> | null = null
 
 let signalingSocket: WebSocket | null = null
 let pingInterval: ReturnType<typeof setInterval> | null = null
@@ -238,8 +242,14 @@ let isDeviceListenerAdded = false
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
-  ]
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.services.mozilla.com:3478' }
+  ],
+  iceCandidatePoolSize: 10
 }
 
 export function showToast(title: string, message: string, type: 'info' | 'success' | 'danger' = 'info'): void {
@@ -284,7 +294,6 @@ export async function loadTranslations(): Promise<void> {
         state.translations[lang] = dict
       }
     } catch {
-      // Ignored
     }
   }
 }
@@ -338,7 +347,6 @@ export async function loadSettings(): Promise<void> {
       state.settings.kip_username = ''
     }
   } catch {
-    // Ignored
   }
 }
 
@@ -352,7 +360,6 @@ export async function loadDashboardStats(): Promise<void> {
       state.stats.java = s.java
     }
   } catch {
-    // Ignored
   }
 }
 
@@ -404,7 +411,6 @@ export async function loadAudioDevices(): Promise<void> {
     try {
       tempStream = await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch {
-      // Ignored
     }
 
     const devices = await navigator.mediaDevices.enumerateDevices()
@@ -420,7 +426,6 @@ export async function loadAudioDevices(): Promise<void> {
       isDeviceListenerAdded = true
     }
   } catch {
-    // Ignored
   }
 }
 
@@ -447,11 +452,11 @@ async function setupDSPChain(): Promise<void> {
   const validDeviceId = getValidDeviceId(voiceState.selectedInputId, voiceState.inputDevices)
   const constraints: MediaStreamConstraints = {
     audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
+      channelCount: 1,
       sampleRate: 48000,
-      channelCount: 1
+      echoCancellation: { ideal: true },
+      noiseSuppression: { ideal: true },
+      autoGainControl: { ideal: false }
     },
     video: false
   }
@@ -463,11 +468,11 @@ async function setupDSPChain(): Promise<void> {
   rawMicStream = await navigator.mediaDevices.getUserMedia(constraints)
 
   if (audioContext) {
-    await audioContext.close()
+    await audioContext.close().catch(() => {})
   }
 
   const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-  audioContext = new AudioCtxClass()
+  audioContext = new AudioCtxClass({ sampleRate: 48000, latencyHint: 'interactive' })
   await audioContext.resume()
 
   const source = audioContext.createMediaStreamSource(rawMicStream)
@@ -475,51 +480,67 @@ async function setupDSPChain(): Promise<void> {
 
   localAnalyser = audioContext.createAnalyser()
   localAnalyser.fftSize = 512
-  localAnalyser.smoothingTimeConstant = 0.5
-  source.connect(localAnalyser)
+  localAnalyser.smoothingTimeConstant = 0.2
 
   if (state.settings.voice_noise_suppression) {
-    const hpFilter = audioContext.createBiquadFilter()
-    hpFilter.type = 'highpass'
-    hpFilter.frequency.value = 85
+    const subRumbleFilter = audioContext.createBiquadFilter()
+    subRumbleFilter.type = 'highpass'
+    subRumbleFilter.frequency.value = 85
+    subRumbleFilter.Q.value = 0.7
 
-    const lpFilter = audioContext.createBiquadFilter()
-    lpFilter.type = 'lowpass'
-    lpFilter.frequency.value = 7500
+    const notch50 = audioContext.createBiquadFilter()
+    notch50.type = 'notch'
+    notch50.frequency.value = 50
+    notch50.Q.value = 4.0
 
-    const eq = audioContext.createBiquadFilter()
-    eq.type = 'peaking'
-    eq.frequency.value = 3000
-    eq.Q.value = 1.0
-    eq.gain.value = 2.5
+    const notch60 = audioContext.createBiquadFilter()
+    notch60.type = 'notch'
+    notch60.frequency.value = 60
+    notch60.Q.value = 4.0
+
+    const vocalFormantEQ = audioContext.createBiquadFilter()
+    vocalFormantEQ.type = 'peaking'
+    vocalFormantEQ.frequency.value = 2600
+    vocalFormantEQ.Q.value = 1.1
+    vocalFormantEQ.gain.value = 2.5
+
+    const hissCutFilter = audioContext.createBiquadFilter()
+    hissCutFilter.type = 'lowpass'
+    hissCutFilter.frequency.value = 9500
+    hissCutFilter.Q.value = 0.7
 
     const compressor = audioContext.createDynamicsCompressor()
-    compressor.threshold.value = -35
-    compressor.knee.value = 15
-    compressor.ratio.value = 8
-    compressor.attack.value = 0.005
-    compressor.release.value = 0.1
+    compressor.threshold.value = -28
+    compressor.knee.value = 8
+    compressor.ratio.value = 4
+    compressor.attack.value = 0.003
+    compressor.release.value = 0.06
 
-    gateGainNode = audioContext.createGain()
-    gateGainNode.gain.value = 0
+    expanderGainNode = audioContext.createGain()
+    expanderGainNode.gain.value = 0.001
 
-    source.connect(hpFilter)
-    hpFilter.connect(lpFilter)
-    lpFilter.connect(eq)
-    eq.connect(compressor)
-    compressor.connect(gateGainNode)
-    gateGainNode.connect(dest)
+    source.connect(localAnalyser)
+    source.connect(subRumbleFilter)
+    subRumbleFilter.connect(notch50)
+    notch50.connect(notch60)
+    notch60.connect(vocalFormantEQ)
+    vocalFormantEQ.connect(hissCutFilter)
+    hissCutFilter.connect(compressor)
+    compressor.connect(expanderGainNode)
+    expanderGainNode.connect(dest)
   } else {
-    gateGainNode = audioContext.createGain()
-    gateGainNode.gain.value = 1
-    source.connect(gateGainNode)
-    gateGainNode.connect(dest)
+    expanderGainNode = audioContext.createGain()
+    expanderGainNode.gain.value = 1
+
+    source.connect(localAnalyser)
+    source.connect(expanderGainNode)
+    expanderGainNode.connect(dest)
   }
 
   localStream = dest.stream
 
-  if (voiceState.isMuted && gateGainNode) {
-    gateGainNode.gain.value = 0
+  if (voiceState.isMuted && expanderGainNode) {
+    expanderGainNode.gain.value = 0
   }
 }
 
@@ -543,7 +564,6 @@ export async function setAudioInput(deviceId: string): Promise<void> {
         }
       }
     } catch {
-      // Ignored
     }
   }
 }
@@ -582,6 +602,7 @@ export async function startMicTest(): Promise<void> {
 
     localDummyAudio = new Audio()
     localDummyAudio.autoplay = true
+    localDummyAudio.volume = 0.8
     localDummyAudio.srcObject = localStream
 
     if (
@@ -612,9 +633,9 @@ export function stopMicTest(): void {
   }
 
   if (!voiceState.isConnected) {
-    if (vadAnimationId !== null) {
-      cancelAnimationFrame(vadAnimationId)
-      vadAnimationId = null
+    if (vadIntervalId !== null) {
+      clearInterval(vadIntervalId)
+      vadIntervalId = null
     }
     if (audioContext) {
       audioContext.close().catch(() => {})
@@ -626,11 +647,11 @@ export function stopMicTest(): void {
     }
     localStream = null
     localAnalyser = null
-    gateGainNode = null
+    expanderGainNode = null
   }
 }
 
-export async function joinVoiceChannel(channelName: string, host = '127.0.0.1:8765'): Promise<void> {
+export async function joinVoiceChannel(channelName: string, host = 'wss://kip-backend.noisyfutlor98.workers.dev/ws'): Promise<void> {
   if (voiceState.isConnected) return
   stopMicTest()
 
@@ -680,9 +701,9 @@ export function leaveVoiceChannel(): void {
 
   stopMicTest()
 
-  if (vadAnimationId !== null) {
-    cancelAnimationFrame(vadAnimationId)
-    vadAnimationId = null
+  if (vadIntervalId !== null) {
+    clearInterval(vadIntervalId)
+    vadIntervalId = null
   }
   if (audioContext) {
     audioContext.close().catch(() => {})
@@ -694,16 +715,16 @@ export function leaveVoiceChannel(): void {
   }
   localStream = null
   localAnalyser = null
-  gateGainNode = null
+  expanderGainNode = null
 }
 
 export function toggleMute(): void {
   if (!localStream) return
   voiceState.isMuted = !voiceState.isMuted
 
-  if (gateGainNode && audioContext) {
+  if (expanderGainNode && audioContext) {
     const targetGain = voiceState.isMuted ? 0 : 1
-    gateGainNode.gain.setTargetAtTime(targetGain, audioContext.currentTime, 0.01)
+    expanderGainNode.gain.setTargetAtTime(targetGain, audioContext.currentTime, 0.01)
   }
 
   if (signalingSocket?.readyState === WebSocket.OPEN) {
@@ -729,12 +750,20 @@ export function toggleDeafen(): void {
   }
 }
 
-function initSignaling(channelId: string, host = '127.0.0.1:8765'): void {
+function initSignaling(channelId: string, host: string): void {
   const userName = state.settings.has_kip_token
     ? state.settings.kip_username
     : state.settings.ms_name || state.settings.offline_username || 'Guest'
-  const wsProtocol = host.includes('pinggy.io') ? 'wss://' : 'ws://'
-  const wsUrl = `${wsProtocol}${host}?channel=${encodeURIComponent(channelId)}&user=${encodeURIComponent(userName)}`
+
+  let targetUrl = host
+  if (!targetUrl.startsWith('ws://') && !targetUrl.startsWith('wss://')) {
+    targetUrl = (targetUrl.includes('localhost') || targetUrl.includes('127.0.0.1') || targetUrl.includes('192.168.'))
+      ? `ws://${targetUrl}`
+      : `wss://${targetUrl}`
+  }
+
+  const separator = targetUrl.includes('?') ? '&' : '?'
+  const wsUrl = `${targetUrl}${separator}channel=${encodeURIComponent(channelId)}&user=${encodeURIComponent(userName)}`
 
   try {
     signalingSocket = new WebSocket(wsUrl)
@@ -748,7 +777,7 @@ function initSignaling(channelId: string, host = '127.0.0.1:8765'): void {
       if (signalingSocket?.readyState === WebSocket.OPEN) {
         signalingSocket.send(JSON.stringify({ type: 'ping' }))
       }
-    }, 15000)
+    }, 12000)
   }
 
   signalingSocket.onclose = () => {
@@ -772,29 +801,57 @@ function initSignaling(channelId: string, host = '127.0.0.1:8765'): void {
         }
         const peer = peers[data.userId]
         if (peer) {
-          await peer.pc.setRemoteDescription(new RTCSessionDescription(data.offer))
-          const answer = await peer.pc.createAnswer()
-          await peer.pc.setLocalDescription(answer)
-          if (signalingSocket?.readyState === WebSocket.OPEN) {
-            signalingSocket.send(JSON.stringify({ type: 'answer', answer, target: data.userId }))
+          const pc = peer.pc
+          const readyForOffer = !peer.makingOffer && (pc.signalingState === 'stable' || peer.isSettingRemoteAnswerPending)
+          const offerCollision = !readyForOffer
+          peer.ignoreOffer = !peer.polite && offerCollision
+          if (peer.ignoreOffer) {
+            return
           }
-          peer.pendingCandidates.forEach((c) => peer.pc.addIceCandidate(c).catch(() => {}))
-          peer.pendingCandidates = []
+          try {
+            if (offerCollision) {
+              await pc.setLocalDescription({ type: 'rollback' })
+            }
+            await pc.setRemoteDescription(new RTCSessionDescription(data.sdp || data.offer))
+            await pc.setLocalDescription()
+            if (signalingSocket?.readyState === WebSocket.OPEN) {
+              signalingSocket.send(
+                JSON.stringify({
+                  type: 'answer',
+                  sdp: pc.localDescription,
+                  target: data.userId
+                })
+              )
+            }
+            for (const cand of peer.pendingCandidates) {
+              await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {})
+            }
+            peer.pendingCandidates = []
+          } catch {
+          }
         }
       } else if (data.type === 'answer') {
         const peer = peers[data.userId]
-        if (peer?.pc) {
-          await peer.pc.setRemoteDescription(new RTCSessionDescription(data.answer))
-          peer.pendingCandidates.forEach((c) => peer.pc.addIceCandidate(c).catch(() => {}))
-          peer.pendingCandidates = []
+        if (peer && peer.pc) {
+          try {
+            await peer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp || data.answer))
+            for (const cand of peer.pendingCandidates) {
+              await peer.pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {})
+            }
+            peer.pendingCandidates = []
+          } catch {
+          }
         }
       } else if (data.type === 'ice-candidate') {
         const peer = peers[data.userId]
-        if (peer?.pc) {
-          if (peer.pc.remoteDescription?.type) {
-            peer.pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {})
-          } else {
-            peer.pendingCandidates.push(new RTCIceCandidate(data.candidate))
+        if (peer && peer.pc) {
+          const candidateInit = data.candidate
+          if (candidateInit) {
+            if (peer.pc.remoteDescription && peer.pc.remoteDescription.type) {
+              await peer.pc.addIceCandidate(new RTCIceCandidate(candidateInit)).catch(() => {})
+            } else {
+              peer.pendingCandidates.push(candidateInit)
+            }
           }
         }
       } else if (data.type === 'mute-state') {
@@ -816,23 +873,29 @@ function initSignaling(channelId: string, host = '127.0.0.1:8765'): void {
         showToast(t('K.I.P. Party'), `${data.userName} declined your invite.`, 'danger')
       }
     } catch {
-      // Ignored
     }
   }
 }
 
 function createPeerConnection(peerId: string, peerName: string, isInitiator: boolean): void {
   const pc = new RTCPeerConnection(RTC_CONFIG)
+  const polite = !isInitiator
 
-  peers[peerId] = {
+  const peer: WebRTCPeer = {
     pc,
     analyser: null,
     audioCtx: null,
     audioEl: null,
     name: peerName,
+    makingOffer: false,
+    ignoreOffer: false,
+    isSettingRemoteAnswerPending: false,
     pendingCandidates: [],
-    lastSpokeTime: 0
+    lastSpokeTime: 0,
+    polite
   }
+
+  peers[peerId] = peer
 
   voiceState.participants.push({
     id: peerId,
@@ -853,10 +916,29 @@ function createPeerConnection(peerId: string, peerName: string, isInitiator: boo
       signalingSocket.send(
         JSON.stringify({
           type: 'ice-candidate',
-          candidate: event.candidate,
+          candidate: event.candidate.toJSON(),
           target: peerId
         })
       )
+    }
+  }
+
+  pc.onnegotiationneeded = async () => {
+    try {
+      peer.makingOffer = true
+      await pc.setLocalDescription()
+      if (signalingSocket?.readyState === WebSocket.OPEN) {
+        signalingSocket.send(
+          JSON.stringify({
+            type: 'offer',
+            sdp: pc.localDescription,
+            target: peerId
+          })
+        )
+      }
+    } catch {
+    } finally {
+      peer.makingOffer = false
     }
   }
 
@@ -866,15 +948,17 @@ function createPeerConnection(peerId: string, peerName: string, isInitiator: boo
       pc.iceConnectionState === 'closed' ||
       pc.iceConnectionState === 'disconnected'
     ) {
-      destroyPeer(peerId)
+      if (pc.iceConnectionState === 'failed') {
+        pc.restartIce()
+      }
     }
   }
 
   pc.ontrack = (event: RTCTrackEvent) => {
-    const peer = peers[peerId]
-    if (!peer) return
+    const activePeer = peers[peerId]
+    if (!activePeer) return
 
-    const stream = event.streams?.[0] || new MediaStream([event.track])
+    const stream = event.streams[0] || new MediaStream([event.track])
     const audioEl = new Audio()
     audioEl.autoplay = true
     audioEl.muted = voiceState.isDeafened
@@ -890,7 +974,18 @@ function createPeerConnection(peerId: string, peerName: string, isInitiator: boo
         .catch(() => {})
     }
 
-    audioEl.play().catch(() => {})
+    const startAudioPlay = () => {
+      audioEl.play().catch(() => {
+        const unblockHandler = () => {
+          audioEl.play().catch(() => {})
+          window.removeEventListener('click', unblockHandler)
+          window.removeEventListener('keydown', unblockHandler)
+        }
+        window.addEventListener('click', unblockHandler)
+        window.addEventListener('keydown', unblockHandler)
+      })
+    }
+    startAudioPlay()
 
     const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
     const peerAudioCtx = new AudioCtxClass()
@@ -905,26 +1000,9 @@ function createPeerConnection(peerId: string, peerName: string, isInitiator: boo
     source.connect(analyser)
     analyser.connect(dummyDest)
 
-    peer.audioEl = audioEl
-    peer.analyser = analyser
-    peer.audioCtx = peerAudioCtx
-  }
-
-  if (isInitiator) {
-    pc.createOffer()
-      .then((offer) => pc.setLocalDescription(offer))
-      .then(() => {
-        if (signalingSocket?.readyState === WebSocket.OPEN) {
-          signalingSocket.send(
-            JSON.stringify({
-              type: 'offer',
-              offer: pc.localDescription,
-              target: peerId
-            })
-          )
-        }
-      })
-      .catch(() => {})
+    activePeer.audioEl = audioEl
+    activePeer.analyser = analyser
+    activePeer.audioCtx = peerAudioCtx
   }
 }
 
@@ -944,81 +1022,88 @@ function destroyPeer(peerId: string): void {
 }
 
 function monitorVoiceActivity(): void {
-  if (!audioContext) return
+  if (vadIntervalId !== null) {
+    clearInterval(vadIntervalId)
+    vadIntervalId = null
+  }
 
-  const HYSTERESIS_MS = 300
-  let lastUpdate = 0
+  const HYSTERESIS_MS = 240
 
-  const checkActivity = (time: number) => {
-    if (!voiceState.isConnected && !voiceState.isTestingMic) return
+  vadIntervalId = setInterval(() => {
+    if (!voiceState.isConnected && !voiceState.isTestingMic) {
+      if (vadIntervalId !== null) {
+        clearInterval(vadIntervalId)
+        vadIntervalId = null
+      }
+      return
+    }
 
-    if (time - lastUpdate > 50) {
-      const now = Date.now()
+    const now = Date.now()
 
-      if (localAnalyser) {
-        const data = new Uint8Array(localAnalyser.frequencyBinCount)
-        localAnalyser.getByteFrequencyData(data)
+    if (localAnalyser) {
+      const data = new Uint8Array(localAnalyser.frequencyBinCount)
+      localAnalyser.getByteFrequencyData(data)
 
-        let vocalEnergy = 0
-        for (let i = 3; i < 32; i++) {
-          vocalEnergy += data[i]
+      let formantEnergy = 0
+      for (let i = 3; i <= 36; i++) {
+        formantEnergy += data[i]
+      }
+      formantEnergy /= 34
+
+      let outOfBandNoise = 0
+      for (let i = 45; i < 90; i++) {
+        outOfBandNoise += data[i]
+      }
+      outOfBandNoise /= 45
+
+      if (formantEnergy < adaptiveNoiseFloor) {
+        adaptiveNoiseFloor = adaptiveNoiseFloor * 0.9 + formantEnergy * 0.1
+      } else {
+        adaptiveNoiseFloor += 0.03
+      }
+      if (adaptiveNoiseFloor < 4) adaptiveNoiseFloor = 4
+
+      const isHumanVoice = (formantEnergy > adaptiveNoiseFloor * 1.45 + 5) && (formantEnergy >= outOfBandNoise * 0.85) && !voiceState.isMuted
+
+      if (isHumanVoice) {
+        localLastSpokeTime = now
+        if (expanderGainNode && audioContext && state.settings.voice_noise_suppression) {
+          expanderGainNode.gain.setTargetAtTime(1.0, audioContext.currentTime, 0.008)
         }
-        vocalEnergy /= 29
-
-        if (vocalEnergy < noiseFloor) {
-          noiseFloor = vocalEnergy
-        } else {
-          noiseFloor += 0.05
-        }
-        if (noiseFloor < 5) noiseFloor = 5
-
-        const isCurrentlySpeaking = vocalEnergy > noiseFloor + 12 && !voiceState.isMuted
-
-        if (isCurrentlySpeaking) {
-          localLastSpokeTime = now
-          if (gateGainNode && audioContext && state.settings.voice_noise_suppression) {
-            gateGainNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.03)
+      } else {
+        if (now - localLastSpokeTime > HYSTERESIS_MS) {
+          if (expanderGainNode && audioContext && state.settings.voice_noise_suppression) {
+            expanderGainNode.gain.setTargetAtTime(0.001, audioContext.currentTime, 0.08)
           }
-        } else {
-          if (now - localLastSpokeTime > HYSTERESIS_MS) {
-            if (gateGainNode && audioContext && state.settings.voice_noise_suppression) {
-              gateGainNode.gain.setTargetAtTime(0, audioContext.currentTime, 0.15)
-            }
-          }
-        }
-
-        voiceState.localSpeaking = now - localLastSpokeTime < HYSTERESIS_MS
-        if (voiceState.isTestingMic) {
-          voiceState.testMicVolume = Math.min(Math.round((vocalEnergy / 255) * 100), 100)
         }
       }
 
-      voiceState.participants.forEach((p) => {
-        const peer = peers[p.id]
-        if (peer?.analyser) {
-          const data = new Uint8Array(peer.analyser.frequencyBinCount)
-          peer.analyser.getByteFrequencyData(data)
-
-          let vocalEnergy = 0
-          for (let i = 3; i < 32; i++) {
-            vocalEnergy += data[i]
-          }
-          vocalEnergy /= 29
-
-          const isCurrentlySpeaking = vocalEnergy > 15 && !p.muted
-          if (isCurrentlySpeaking) {
-            peer.lastSpokeTime = now
-          }
-          p.speaking = now - (peer.lastSpokeTime || 0) < HYSTERESIS_MS
-        }
-      })
-      lastUpdate = time
+      voiceState.localSpeaking = now - localLastSpokeTime < HYSTERESIS_MS
+      if (voiceState.isTestingMic) {
+        voiceState.testMicVolume = Math.min(Math.round((formantEnergy / 255) * 100), 100)
+      }
     }
 
-    vadAnimationId = requestAnimationFrame(checkActivity)
-  }
+    voiceState.participants.forEach((p) => {
+      const peer = peers[p.id]
+      if (peer?.analyser) {
+        const data = new Uint8Array(peer.analyser.frequencyBinCount)
+        peer.analyser.getByteFrequencyData(data)
 
-  vadAnimationId = requestAnimationFrame(checkActivity)
+        let formantEnergy = 0
+        for (let i = 3; i <= 36; i++) {
+          formantEnergy += data[i]
+        }
+        formantEnergy /= 34
+
+        const isSpeaking = formantEnergy > 12 && !p.muted
+        if (isSpeaking) {
+          peer.lastSpokeTime = now
+        }
+        p.speaking = now - (peer.lastSpokeTime || 0) < HYSTERESIS_MS
+      }
+    })
+  }, 35)
 }
 
 export async function inviteToParty(targetUserId: string): Promise<void> {
@@ -1046,7 +1131,7 @@ export async function acceptPartyInvite(): Promise<void> {
 
   showToast(t('K.I.P. Party'), t('Accepting invite and syncing mods...'), 'info')
 
-  let host = '127.0.0.1:8765'
+  let host = 'wss://kip-backend.noisyfutlor98.workers.dev/ws'
   if (invite.tunnelUrl) {
     const match = invite.tunnelUrl.match(/(?:tcp:\/\/|https:\/\/|wss:\/\/)([a-zA-Z0-9.\-]+(?::\d+)?)/)
     if (match) host = match[1]
@@ -1066,7 +1151,6 @@ export async function acceptPartyInvite(): Promise<void> {
       await navigator.clipboard.writeText(invite.tunnelUrl)
       showToast(t('K.I.P. Party'), t('Server IP copied to clipboard!'), 'success')
     } catch {
-      // Ignored
     }
   }
 
