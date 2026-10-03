@@ -9,7 +9,7 @@ Set-Location -Path "$PSScriptRoot\.."
 
 $CleanVersion = $Version.TrimStart("v").Trim()
 if ($CleanVersion -notmatch "^\d+\.\d+\.\d+$") {
-    Write-Error "Version must follow semver format X.Y.Z (e.g. 1.5.8 or 1.6.0)"
+    Write-Error "Version must follow semver format X.Y.Z (e.g. 1.7.0)"
 }
 
 $RootPkg = "package.json"
@@ -37,12 +37,20 @@ if (Test-Path $ConfigRs) {
     (Get-Content $ConfigRs) -replace 'pub const APP_VERSION:\s*&str\s*=\s*"[^"]+";', ('pub const APP_VERSION: &str = "' + $CleanVersion + '";') | Set-Content $ConfigRs
 }
 
+$AppStateTs = "frontend\src\stores\appState.ts"
+if (Test-Path $AppStateTs) {
+    (Get-Content $AppStateTs) -replace "version:\s*'[^']+'", ("version: '" + $CleanVersion + "'") | Set-Content $AppStateTs
+}
+
+$WorkerJs = "worker.js"
+if (Test-Path $WorkerJs) {
+    (Get-Content $WorkerJs) -replace 'version:\s*"[^"]+"', ('version: "' + $CleanVersion + '"') | Set-Content $WorkerJs
+}
+
 $LatestJson = "latest.json"
 if (Test-Path $LatestJson) {
     (Get-Content $LatestJson) -replace '"version":\s*"[^"]+"', ('"version": "' + $CleanVersion + '"') | Set-Content $LatestJson
 }
-
-Write-Host "Updated version to $CleanVersion across all configuration files."
 
 Remove-Item -Path "frontend\src\bridge.js", "frontend\src\main.js", "frontend\src\store.js" -ErrorAction SilentlyContinue
 
@@ -53,7 +61,7 @@ if (Test-Path ".vscode\settings.json") {
 }
 
 $Tag = "v$CleanVersion"
-git commit -m "Release $Tag (GPL-3.0)"
+git commit -m "Release $Tag (GPL-3.0) - Core Launch Overhaul, Shield Flagship, Store & Content Suite"
 git tag -a $Tag -m "Release $Tag" -f
 
 $Branch = (git rev-parse --abbrev-ref HEAD).Trim()
@@ -62,10 +70,9 @@ if ($Branch -eq "master") {
     $Branch = "main"
 }
 
-Write-Host "Pushing full codebase and tag $Tag to origin/$Branch..."
 git push origin $Branch --tags -f
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Git push failed. Ensure origin remote credentials and permissions are valid."
 }
 
-Write-Host "Release $Tag successfully pushed to GitHub with all files included!"
+Write-Host "K.I.P. Engine v$CleanVersion published and pushed to GitHub successfully."

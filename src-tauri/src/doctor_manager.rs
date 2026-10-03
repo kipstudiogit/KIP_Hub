@@ -1,10 +1,11 @@
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
-use std::collections::{HashMap, HashSet};
-use zip::ZipArchive;
 use regex::Regex;
 use serde_json::{json, Value};
+use zip::ZipArchive;
+
 use crate::api_manager::ApiManager;
 
 #[derive(Clone)]
@@ -16,9 +17,9 @@ struct ModInfo {
     loaders: Vec<String>,
     depends: Vec<String>,
     breaks: Vec<String>,
-    mixin_classes: Vec<String>,
-    is_coremod: bool,
+    provides: Vec<String>,
     jij: Vec<String>,
+    is_coremod: bool,
     is_corrupted: bool,
 }
 
@@ -37,9 +38,9 @@ pub struct DoctorManager {
 impl DoctorManager {
     pub fn new() -> Self {
         let mut ignored_deps = HashSet::new();
-        ignored_deps.insert("fabricloader");
         ignored_deps.insert("java");
         ignored_deps.insert("minecraft");
+        ignored_deps.insert("fabricloader");
         ignored_deps.insert("forge");
         ignored_deps.insert("neoforge");
         ignored_deps.insert("fml");
@@ -53,6 +54,11 @@ impl DoctorManager {
         dependency_map.insert("fabric-api", "fabric-api");
         dependency_map.insert("qsl", "qsl");
         dependency_map.insert("quilt_standard_libraries", "qsl");
+        dependency_map.insert("cloth_config", "cloth-config");
+        dependency_map.insert("cloth-config2", "cloth-config");
+        dependency_map.insert("architectury", "architectury-api");
+        dependency_map.insert("curios", "curios-api");
+        dependency_map.insert("geckolib", "geckolib");
 
         Self {
             ignored_deps,
@@ -63,25 +69,31 @@ impl DoctorManager {
             re_id: Regex::new(r#"modId\s*=\s*"([^"]+)""#).unwrap(),
             re_name: Regex::new(r#"displayName\s*=\s*"([^"]+)""#).unwrap(),
             re_ver: Regex::new(r#"version\s*=\s*"([^"]+)""#).unwrap(),
-            re_cfg_ext: Regex::new(r"\.(json|toml|json5)$").unwrap(),
+            re_cfg_ext: Regex::new(r"\.(json|toml|json5|cfg|txt)$").unwrap(),
         }
     }
 
     fn parse_semver(&self, version: &str) -> Vec<u32> {
         if let Some(caps) = self.re_semver.captures(version) {
             if let Some(matched) = caps.get(1) {
-                return matched.as_str().split('.')
+                return matched
+                    .as_str()
+                    .split('.')
                     .filter_map(|s| s.parse::<u32>().ok())
                     .collect();
             }
         }
-        self.re_digits.find_iter(version)
+        self.re_digits
+            .find_iter(version)
             .filter_map(|m| m.as_str().parse::<u32>().ok())
             .collect()
     }
 
     fn extract_mc_version(&self, filename: &str) -> Option<String> {
-        self.re_mc_version.captures(filename).and_then(|c| c.get(1)).map(|m| m.as_str().to_string())
+        self.re_mc_version
+            .captures(filename)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().to_string())
     }
 
     fn is_internal_module(&self, dep_id: &str) -> bool {
@@ -97,7 +109,7 @@ impl DoctorManager {
     fn parse_jar(&self, path: &Path) -> ModInfo {
         let filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let default_name = filename.replace(".jar", "").replace(".disabled", "");
-        
+
         let mut info = ModInfo {
             filename: filename.clone(),
             id: "?".to_string(),
@@ -106,9 +118,9 @@ impl DoctorManager {
             loaders: Vec::new(),
             depends: Vec::new(),
             breaks: Vec::new(),
-            mixin_classes: Vec::new(),
-            is_coremod: false,
+            provides: Vec::new(),
             jij: Vec::new(),
+            is_coremod: false,
             is_corrupted: false,
         };
 
@@ -120,6 +132,13 @@ impl DoctorManager {
             }
         };
 
+        if let Ok(meta) = file.metadata() {
+            if meta.len() < 100 {
+                info.is_corrupted = true;
+                return info;
+            }
+        }
+
         let mut archive = match ZipArchive::new(file) {
             Ok(a) => a,
             Err(_) => {
@@ -127,6 +146,18 @@ impl DoctorManager {
                 return info;
             }
         };
+
+        for i in 0..archive.len() {
+            if let Ok(zf) = archive.by_index(i) {
+                let name = zf.name().to_string();
+                if (name.starts_with("META-INF/jars/") || name.starts_with("META-INF/jar-in-jar/")) && name.ends_with(".jar") {
+                    if let Some(clean_file) = Path::new(&name).file_name() {
+                        let base_jij = clean_file.to_string_lossy().replace(".jar", "");
+                        info.jij.push(base_jij);
+                    }
+                }
+            }
+        }
 
         if let Ok(mut mf) = archive.by_name("META-INF/MANIFEST.MF") {
             let mut content = String::new();
@@ -153,11 +184,9 @@ impl DoctorManager {
                     if let Some(breaks) = data["breaks"].as_object() {
                         info.breaks.extend(breaks.keys().cloned());
                     }
-                    if let Some(jars) = data["jars"].as_array() {
-                        for j in jars {
-                            if let Some(fp) = j["file"].as_str() {
-                                info.jij.push(fp.to_string());
-                            }
+                    if let Some(provides) = data["provides"].as_array() {
+                        for p in provides {
+                            if let Some(s) = p.as_str() { info.provides.push(s.to_string()); }
                         }
                     }
                 }
@@ -212,6 +241,7 @@ impl DoctorManager {
             }
         }
 
+        info.loaders.dedup();
         info
     }
 
@@ -220,10 +250,12 @@ impl DoctorManager {
         if !m_dir.exists() {
             return json!({
                 "is_clean": false,
+                "total_checked": 0,
                 "issues": [{
                     "id": "no_folder",
                     "type": "CRITICAL",
-                    "text": "The 'mods' folder was not found in your instance.",
+                    "title": "Missing Mods Container",
+                    "text": "The 'mods' folder was not found in active instance.",
                     "action": "NONE",
                     "target": ""
                 }]
@@ -242,12 +274,15 @@ impl DoctorManager {
         let mut optifine_present = false;
         let mut sodium_present = false;
         let mut optifabric_present = false;
+        let mut indium_present = false;
+        let mut requires_frapi = false;
         let mut optifine_file = String::new();
         let mut has_coremods = false;
+        let mut total_checked = 0;
 
         let entries = match fs::read_dir(m_dir) {
             Ok(e) => e,
-            Err(e) => return json!({ "is_clean": false, "issues": [{"id": "fs_err", "type": "CRITICAL", "text": e.to_string(), "action": "NONE", "target": ""}] }),
+            Err(e) => return json!({ "is_clean": false, "total_checked": 0, "issues": [{"id": "fs_err", "type": "CRITICAL", "title": "IO Error", "text": e.to_string(), "action": "NONE", "target": ""}] }),
         };
 
         for entry in entries.filter_map(|e| e.ok()) {
@@ -262,7 +297,8 @@ impl DoctorManager {
                     issues.push(json!({
                         "id": format!("inv_{}", f),
                         "type": "WARNING",
-                        "text": format!("Found an invalid file '{}'. Only .jar files belong in the mods folder.", f),
+                        "title": "Non-Executable File in Mods",
+                        "text": format!("Invalid payload '{}' detected. Only compiled Java .jar files belong in the mods directory.", f),
                         "action": "DELETE",
                         "target": f
                     }));
@@ -270,13 +306,15 @@ impl DoctorManager {
                 continue;
             }
 
+            total_checked += 1;
             let m = self.parse_jar(&fp);
 
             if m.is_corrupted {
                 issues.push(json!({
                     "id": format!("corr_{}", f),
                     "type": "CRITICAL",
-                    "text": format!("The file '{}' is corrupted, empty, or not a valid Java archive.", f),
+                    "title": "Corrupted Java Archive",
+                    "text": format!("File '{}' is truncated, empty, or possesses an invalid ZIP header.", f),
                     "action": "DELETE",
                     "target": f
                 }));
@@ -287,7 +325,8 @@ impl DoctorManager {
                 issues.push(json!({
                     "id": format!("unk_{}", f),
                     "type": "WARNING",
-                    "text": format!("'{}' doesn't seem to be a standard mod. It might cause crashes.", f),
+                    "title": "Unidentified Java Package",
+                    "text": format!("'{}' does not declare a standard Fabric/Forge/Quilt descriptor. It may trigger bootstrap failures.", f),
                     "action": "DELETE",
                     "target": f
                 }));
@@ -304,6 +343,10 @@ impl DoctorManager {
             }
 
             if m.id != "?" {
+                for p in m.provides {
+                    jij_provided.insert(p.to_lowercase());
+                }
+
                 if let Some(old_f) = ids_present.get(&m.id) {
                     let old_fp = m_dir.join(old_f);
                     let old_m = self.parse_jar(&old_fp);
@@ -315,7 +358,8 @@ impl DoctorManager {
                         issues.push(json!({
                             "id": format!("dup_{}_{}", m.id, old_f),
                             "type": "WARNING",
-                            "text": format!("Found a duplicate of '{}'. Keeping the newer version '{}' and removing '{}'.", m.name, f, old_f),
+                            "title": "Duplicate Mod Ingestion",
+                            "text": format!("Found multiple versions of '{}'. Retaining newer '{}' and pruning '{}'.", m.name, f, old_f),
                             "action": "DELETE",
                             "target": old_f.clone()
                         }));
@@ -324,7 +368,8 @@ impl DoctorManager {
                         issues.push(json!({
                             "id": format!("dup_{}_{}", m.id, f),
                             "type": "WARNING",
-                            "text": format!("Found a duplicate of '{}'. This file ('{}') is older or identical to '{}'.", m.name, f, old_f),
+                            "title": "Duplicate Mod Ingestion",
+                            "text": format!("Found multiple versions of '{}'. Pruning redundant older binary '{}'.", m.name, f),
                             "action": "DELETE",
                             "target": f.clone()
                         }));
@@ -346,11 +391,9 @@ impl DoctorManager {
             }
 
             for j in m.jij {
-                let j_clean = j.replace(".jar", "");
-                let j_name = Path::new(&j_clean).file_name().unwrap_or_default().to_string_lossy().to_string();
-                jij_provided.insert(j_name.clone());
-                if let Some(first) = j_name.split('-').next() {
-                    jij_provided.insert(first.to_string());
+                jij_provided.insert(j.to_lowercase());
+                if let Some(first) = j.split('-').next() {
+                    jij_provided.insert(first.to_lowercase());
                 }
             }
 
@@ -362,13 +405,19 @@ impl DoctorManager {
             if fl.contains("optifabric") {
                 optifabric_present = true;
             }
+            if fl.contains("indium") {
+                indium_present = true;
+            }
             if fl.contains("sodium") || fl.contains("rubidium") || fl.contains("embeddium") {
                 sodium_present = true;
+            }
+            if fl.contains("continuity") || fl.contains("chipped") || fl.contains("campanion") || fl.contains("lambdabettergrass") {
+                requires_frapi = true;
             }
         }
 
         let dominant_mc_version = version_freq.into_iter().max_by_key(|&(_, count)| count).map(|(v, _)| v);
-        
+
         let mut loaders_count: HashMap<String, usize> = HashMap::new();
         for lds in file_to_loaders.values() {
             for ld in lds {
@@ -383,11 +432,21 @@ impl DoctorManager {
                     issues.push(json!({
                         "id": format!("wrong_loader_{}", f),
                         "type": "CRITICAL",
-                        "text": format!("'{}' is a Forge mod, which cannot run on your Fabric/Quilt setup. It must be removed.", f),
+                        "title": "Cross-Loader Incompatibility",
+                        "text": format!("'{}' is a Forge module and cannot execute on an active Fabric/Quilt bootstrap.", f),
                         "action": "DELETE",
                         "target": f
                     }));
                 }
+            } else if dominant_loader == "forge" && (lds.contains(&"fabric".to_string()) || lds.contains(&"quilt".to_string())) && !lds.contains(&"forge".to_string()) {
+                issues.push(json!({
+                    "id": format!("wrong_loader_{}", f),
+                    "type": "CRITICAL",
+                    "title": "Cross-Loader Incompatibility",
+                    "text": format!("'{}' is a Fabric/Quilt module and cannot execute on Forge.", f),
+                    "action": "DELETE",
+                    "target": f
+                }));
             }
         }
 
@@ -397,7 +456,8 @@ impl DoctorManager {
                     issues.push(json!({
                         "id": format!("ver_{}", f),
                         "type": "CRITICAL",
-                        "text": format!("Version mismatch! '{}' is built for Minecraft {}, but your modpack is running {}.", f, v, target_ver),
+                        "title": "Version Mismatch Anomaly",
+                        "text": format!("Binary '{}' targets Minecraft {}, whereas your instance runs {}.", f, v, target_ver),
                         "action": "DELETE",
                         "target": f
                     }));
@@ -406,11 +466,12 @@ impl DoctorManager {
         }
 
         if optifine_present {
-            if dominant_loader == "fabric" && !optifabric_present {
+            if (dominant_loader == "fabric" || dominant_loader == "quilt") && !optifabric_present {
                 issues.push(json!({
                     "id": "optifabric_missing",
                     "type": "CRITICAL",
-                    "text": "OptiFine on Fabric will crash without the OptiFabric bridge.",
+                    "title": "Missing OptiFabric Bridge",
+                    "text": "OptiFine on modern modular loaders requires the OptiFabric bridge layer.",
                     "action": "DOWNLOAD",
                     "target": "optifabric"
                 }));
@@ -419,18 +480,31 @@ impl DoctorManager {
                 issues.push(json!({
                     "id": "optifine_conflict",
                     "type": "CRITICAL",
-                    "text": "OptiFine is fundamentally incompatible with Sodium/Embeddium. You must choose one.",
+                    "title": "Fatal Rendering Pipeline Collision",
+                    "text": "OptiFine and Sodium rewrite the identical chunk renderer. One must be eliminated.",
                     "action": "DELETE",
                     "target": optifine_file
                 }));
             }
         }
 
+        if sodium_present && requires_frapi && !indium_present && (dominant_loader == "fabric" || dominant_loader == "quilt") {
+            issues.push(json!({
+                "id": "indium_missing",
+                "type": "CRITICAL",
+                "title": "Missing Fabric Rendering API Adapter (Indium)",
+                "text": "Sodium overrides FRAPI. Modules targeting custom render models require Indium.",
+                "action": "DOWNLOAD",
+                "target": "indium"
+            }));
+        }
+
         if has_coremods && (dominant_loader == "fabric" || dominant_loader == "quilt") {
             issues.push(json!({
                 "id": "coremod_warning",
                 "type": "WARNING",
-                "text": "Legacy CoreMods detected on a modern loader. This often leads to severe instability.",
+                "title": "Legacy CoreMod Detected",
+                "text": "Legacy LaunchWrapper CoreMods detected on Knot. Expect bytecode mutation collisions.",
                 "action": "NONE",
                 "target": ""
             }));
@@ -442,11 +516,13 @@ impl DoctorManager {
                     continue;
                 }
                 let mapped = self.dependency_map.get(did.as_str()).copied().unwrap_or(did.as_str());
-                if !ids_present.contains_key(mapped) && !jij_provided.contains(mapped) {
+                let clean_did = did.to_lowercase();
+                if !ids_present.contains_key(mapped) && !ids_present.contains_key(&clean_did) && !jij_provided.contains(mapped) && !jij_provided.contains(&clean_did) {
                     issues.push(json!({
                         "id": format!("dep_{}_{}", mid, did),
                         "type": "WARNING",
-                        "text": format!("The mod '{}' requires '{}' to work properly.", mname, mapped),
+                        "title": "Unfulfilled Dependency Requirement",
+                        "text": format!("Module '{}' strictly requires '{}' to initialize.", mname, mapped),
                         "action": "DOWNLOAD",
                         "target": mapped
                     }));
@@ -460,7 +536,8 @@ impl DoctorManager {
                     issues.push(json!({
                         "id": format!("conf_{}_{}", mid, cid),
                         "type": "CRITICAL",
-                        "text": format!("'{}' explicitly marks '{}' as incompatible! One must be removed.", mname, cid),
+                        "title": "Declared Incompatibility Collision",
+                        "text": format!("'{}' declares an unresolvable collision with '{}'.", mname, cid),
                         "action": "DELETE",
                         "target": target_f
                     }));
@@ -471,17 +548,18 @@ impl DoctorManager {
         let cfg_dir = Path::new(config_dir);
         if cfg_dir.exists() {
             if let Ok(c_entries) = fs::read_dir(cfg_dir) {
-                let ignored_cfgs = ["forge", "fabric", "quilt", "neoforge", "minecraft"];
+                let ignored_cfgs = ["forge", "fabric", "quilt", "neoforge", "minecraft", "options"];
                 for c_entry in c_entries.filter_map(|e| e.ok()) {
                     let cf_name = c_entry.file_name().to_string_lossy().to_string();
-                    if cf_name.ends_with(".json") || cf_name.ends_with(".toml") || cf_name.ends_with(".json5") {
+                    if cf_name.ends_with(".json") || cf_name.ends_with(".toml") || cf_name.ends_with(".json5") || cf_name.ends_with(".cfg") {
                         let base = self.re_cfg_ext.replace(&cf_name, "").to_string();
-                        let cfg_id = base.split('-').next().unwrap_or("");
-                        if !ids_present.contains_key(cfg_id) && !ignored_cfgs.contains(&cfg_id) && !jij_provided.contains(cfg_id) {
+                        let cfg_id = base.split('-').next().unwrap_or("").to_lowercase();
+                        if !ids_present.contains_key(&cfg_id) && !ignored_cfgs.contains(&cfg_id.as_str()) && !jij_provided.contains(&cfg_id) {
                             issues.push(json!({
                                 "id": format!("cfg_{}", cf_name),
-                                "type": "WARNING",
-                                "text": format!("Found an orphaned config file for a removed mod: '{}'. It is safe to delete.", cf_name),
+                                "type": "CLEANUP",
+                                "title": "Orphaned Configuration Residue",
+                                "text": format!("Residual configuration '{}' from an uninstalled mod.", cf_name),
                                 "action": "DELETE",
                                 "target": format!("../config/{}", cf_name)
                             }));
@@ -493,6 +571,7 @@ impl DoctorManager {
 
         json!({
             "is_clean": issues.is_empty(),
+            "total_checked": total_checked,
             "issues": issues
         })
     }
@@ -523,12 +602,17 @@ impl DoctorManager {
             } else if action == "DOWNLOAD" && !target.is_empty() {
                 match api_manager.search_modrinth(target, "mod", loader, mc_version, "", "relevance", 0).await {
                     Ok(search_res) => {
+                        let mut success_for_target = false;
                         if let Some(hits) = search_res["hits"].as_array() {
                             if let Some(first) = hits.first() {
                                 if let Some(proj_id) = first["project_id"].as_str() {
                                     let url = format!("https://api.modrinth.com/v2/project/{}/version", proj_id);
-                                    let client = reqwest::Client::new();
-                                    if let Ok(res) = client.get(&url).header("User-Agent", "KIPStudio/KIP_Hub").send().await {
+                                    let client = reqwest::Client::builder()
+                                        .user_agent("KIPStudio/KIP_Hub/1.6.0")
+                                        .build()
+                                        .unwrap_or_else(|_| reqwest::Client::new());
+
+                                    if let Ok(res) = client.get(&url).send().await {
                                         if let Ok(versions) = res.json::<Value>().await {
                                             if let Some(v_arr) = versions.as_array() {
                                                 let mut target_file_url = None;
@@ -540,7 +624,8 @@ impl DoctorManager {
 
                                                     if matches_loader && matches_mc {
                                                         if let Some(files) = v["files"].as_array() {
-                                                            if let Some(f) = files.first() {
+                                                            let candidate = files.iter().find(|f| f["primary"].as_bool().unwrap_or(false)).or_else(|| files.first());
+                                                            if let Some(f) = candidate {
                                                                 target_file_url = f["url"].as_str().map(|s| s.to_string());
                                                                 target_filename = f["filename"].as_str().map(|s| s.to_string());
                                                                 break;
@@ -556,7 +641,7 @@ impl DoctorManager {
                                                             if let Ok(mut out) = File::create(&dest) {
                                                                 if out.write_all(&bytes).is_ok() {
                                                                     downloaded += 1;
-                                                                    continue;
+                                                                    success_for_target = true;
                                                                 }
                                                             }
                                                         }
@@ -568,7 +653,9 @@ impl DoctorManager {
                                 }
                             }
                         }
-                        errors.push(format!("Could not auto-download dependency '{}'.", target));
+                        if !success_for_target {
+                            errors.push(format!("Could not auto-download dependency '{}'.", target));
+                        }
                     }
                     Err(e) => errors.push(format!("Search failed for '{}': {}", target, e)),
                 }

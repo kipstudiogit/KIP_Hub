@@ -1,11 +1,11 @@
 use std::fs::{self, File};
-use std::path::Path;
 use std::io::{Read, Write};
+use std::path::Path;
+use chrono::Local;
+use regex::Regex;
 use walkdir::WalkDir;
 use zip::write::FileOptions;
 use zip::ZipWriter;
-use chrono::Local;
-use regex::Regex;
 
 pub struct ToolManager;
 
@@ -17,7 +17,7 @@ impl ToolManager {
         }
 
         let mut deleted_count = 0;
-        let mut freed_bytes = 0;
+        let mut freed_bytes = 0u64;
 
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.filter_map(|e| e.ok()) {
@@ -117,19 +117,24 @@ impl ToolManager {
 
         for entry in WalkDir::new(saves_path).into_iter().filter_map(|e| e.ok()) {
             let path = entry.path();
-            let name = path.strip_prefix(saves_path).unwrap().to_str().unwrap();
+            if let Ok(rel) = path.strip_prefix(saves_path) {
+                let name = rel.to_string_lossy().replace('\\', "/");
+                if name.is_empty() {
+                    continue;
+                }
 
-            if path.is_file() {
-                if zip.start_file(name, options).is_ok() {
-                    if let Ok(mut f) = File::open(path) {
-                        buffer.clear();
-                        if f.read_to_end(&mut buffer).is_ok() {
-                            let _ = zip.write_all(&buffer);
+                if path.is_file() {
+                    if zip.start_file(&name, options).is_ok() {
+                        if let Ok(mut f) = File::open(path) {
+                            buffer.clear();
+                            if f.read_to_end(&mut buffer).is_ok() {
+                                let _ = zip.write_all(&buffer);
+                            }
                         }
                     }
+                } else if path.is_dir() {
+                    let _ = zip.add_directory(&name, options);
                 }
-            } else if !name.is_empty() {
-                let _ = zip.add_directory(name, options);
             }
         }
 
@@ -148,25 +153,28 @@ impl ToolManager {
         let text_lower = log_text.to_lowercase();
 
         if text_lower.contains("outofmemoryerror") {
-            hints.push("• Not enough RAM. Update JVM args.".to_string());
+            hints.push("Allocated Java heap exhausted. Increase RAM allocation in settings.".to_string());
         }
         if text_lower.contains("optifine") && (text_lower.contains("mixin") || text_lower.contains("sponge")) {
-            hints.push("• OptiFine mixin conflict. Consider using Sodium/Embeddium.".to_string());
+            hints.push("OptiFine mixin conflict detected. Consider migrating to Sodium & Iris.".to_string());
         }
         if text_lower.contains("unsupportedclassversionerror") {
-            hints.push("• Java version mismatch (Ensure Java 8, 17, or 21 is installed).".to_string());
+            hints.push("Java bytecode mismatch. The game was compiled with a newer OpenJDK version.".to_string());
         }
         if text_lower.contains("ticking entity") {
-            hints.push("• Ticking Entity. Corrupted chunk or mob. Restore backup.".to_string());
+            hints.push("Corrupted entity ticking in chunk. World healing or backup rollback advised.".to_string());
         }
         if text_lower.contains("multiple entries with same key") {
-            hints.push("• Registry conflict. Duplicate item IDs.".to_string());
+            hints.push("Mod registry duplicate identifier conflict.".to_string());
+        }
+        if text_lower.contains("nosuchmethoderror") || text_lower.contains("noclassdeffounderror") {
+            hints.push("Missing required API library or outdated dependency version.".to_string());
         }
 
         let re = Regex::new(r"(?i)suspected mods: (.*?)\n").unwrap();
         if let Some(caps) = re.captures(log_text) {
             if let Some(suspect) = caps.get(1) {
-                hints.push(format!("• Suspected: {}", suspect.as_str().trim()));
+                hints.push(format!("Suspected culprit: {}", suspect.as_str().trim()));
             }
         }
 
@@ -175,7 +183,7 @@ impl ToolManager {
 
     pub fn scrub_personal_data(text: &str) -> String {
         let mut scrubbed = text.to_string();
-        
+
         let re_win = Regex::new(r"(?i)(C:\\[Uu]sers\\)[^\\]+").unwrap();
         scrubbed = re_win.replace_all(&scrubbed, "${1}<USER>").to_string();
 

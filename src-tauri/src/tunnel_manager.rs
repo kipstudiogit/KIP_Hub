@@ -11,6 +11,7 @@ use std::os::windows::process::CommandExt;
 pub struct TunnelManager {
     child_process: Arc<Mutex<Option<Child>>>,
     pub running: Arc<AtomicBool>,
+    pub active_endpoint: Arc<Mutex<Option<String>>>,
 }
 
 impl TunnelManager {
@@ -18,6 +19,7 @@ impl TunnelManager {
         Self {
             child_process: Arc::new(Mutex::new(None)),
             running: Arc::new(AtomicBool::new(false)),
+            active_endpoint: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -29,6 +31,7 @@ impl TunnelManager {
 
         let child_arc = Arc::clone(&self.child_process);
         let running_flag = Arc::clone(&self.running);
+        let endpoint_arc = Arc::clone(&self.active_endpoint);
         let port_owned = port.to_string();
 
         running_flag.store(true, Ordering::Relaxed);
@@ -37,6 +40,8 @@ impl TunnelManager {
             let mut cmd = Command::new("ssh");
             cmd.arg("-o")
                 .arg("StrictHostKeyChecking=no")
+                .arg("-o")
+                .arg("ServerAliveInterval=30")
                 .arg("-p")
                 .arg("443")
                 .arg(format!("-R0:localhost:{}", port_owned))
@@ -53,6 +58,7 @@ impl TunnelManager {
                 Ok(c) => c,
                 Err(e) => {
                     running_flag.store(false, Ordering::Relaxed);
+                    *endpoint_arc.lock() = None;
                     callback(format!("Error: {}", e));
                     return;
                 }
@@ -72,7 +78,9 @@ impl TunnelManager {
                     if let Ok(line) = line_res {
                         if let Some(caps) = re.captures(&line) {
                             if let Some(matched) = caps.get(1) {
-                                callback(matched.as_str().to_string());
+                                let ep = matched.as_str().to_string();
+                                *endpoint_arc.lock() = Some(ep.clone());
+                                callback(ep);
                             }
                         }
                     }
@@ -83,6 +91,7 @@ impl TunnelManager {
 
     pub fn stop(&self) {
         self.running.store(false, Ordering::Relaxed);
+        *self.active_endpoint.lock() = None;
         let mut child_guard = self.child_process.lock();
         if let Some(mut child) = child_guard.take() {
             let _ = child.kill();

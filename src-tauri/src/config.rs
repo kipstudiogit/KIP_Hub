@@ -7,7 +7,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use sha2::{Sha256, Digest};
 
 pub const APP_NAME: &str = "K.I.P.";
-pub const APP_VERSION: &str = "1.6.0";
+pub const APP_VERSION: &str = "1.7.0";
 pub const CLOUDFLARE_URL: &str = "https://kip-backend.noisyfutlor98.workers.dev";
 pub const DISCORD_CLIENT_ID: &str = "1546169959799984301";
 
@@ -27,9 +27,12 @@ pub struct AppConfig {
     pub ptero_url: String,
     pub low_graphics: bool,
     pub ai_provider: String,
+    pub ai_model: String,
     pub ollama_url: String,
     pub close_on_launch: bool,
     pub ram_allocation: i32,
+    pub jvm_gc: String,
+    pub jvm_preset: String,
     pub shield_auto_scan: bool,
     pub voice_noise_suppression: bool,
     pub eula_accepted: bool,
@@ -40,6 +43,7 @@ pub struct AppConfig {
     pub game_fullscreen: bool,
     pub custom_java_path: String,
     pub custom_jvm_args: String,
+    pub theme_accent: String,
 }
 
 impl Default for AppConfig {
@@ -60,19 +64,23 @@ impl Default for AppConfig {
             ptero_url: "".to_string(),
             low_graphics: false,
             ai_provider: "google".to_string(),
+            ai_model: "gemini-1.5-flash".to_string(),
             ollama_url: "http://localhost:11434".to_string(),
             close_on_launch: false,
             ram_allocation: 0,
+            jvm_gc: "G1GC".to_string(),
+            jvm_preset: "balanced".to_string(),
             shield_auto_scan: true,
             voice_noise_suppression: true,
             eula_accepted: false,
             telemetry_opt_in: false,
             kip_username: "".to_string(),
             offline_username: "Player".to_string(),
-            game_resolution: "854x480".to_string(),
+            game_resolution: "1920x1080".to_string(),
             game_fullscreen: false,
             custom_java_path: "".to_string(),
             custom_jvm_args: "".to_string(),
+            theme_accent: "indigo".to_string(),
         }
     }
 }

@@ -150,113 +150,7 @@
       </div>
 
       <transition name="slide">
-        <div v-if="state.isNexusOpen" class="absolute top-6 right-6 w-96 max-h-[calc(100%-3rem)] flex flex-col z-[100] kip-card shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden">
-          <div class="p-5 border-b border-white/5 flex justify-between items-center bg-black/40 shrink-0">
-            <div>
-              <h2 class="text-lg font-extrabold flex items-center gap-2"><Zap class="text-indigo-400 w-5 h-5" /> {{ t('K.I.P. Nexus') }}</h2>
-            </div>
-            <button @click="state.isNexusOpen = false" class="p-2 hover:bg-white/10 rounded-xl transition"><X class="w-4 h-4" /></button>
-          </div>
-
-          <div class="flex border-b border-white/5 bg-black/20 shrink-0">
-            <button @click="nexusTab = 'xbox'" :class="nexusTab === 'xbox' ? 'text-emerald-400 border-b-2 border-emerald-400 bg-emerald-500/5' : 'text-white/50 hover:text-white'" class="flex-1 py-3 font-bold transition flex items-center justify-center gap-2 text-xs uppercase tracking-wider">
-              <Gamepad2 class="w-3.5 h-3.5" /> Xbox
-            </button>
-            <button @click="nexusTab = 'kip'" :class="nexusTab === 'kip' ? 'text-indigo-400 border-b-2 border-indigo-400 bg-indigo-500/5' : 'text-white/50 hover:text-white'" class="flex-1 py-3 font-bold transition flex items-center justify-center gap-2 text-xs uppercase tracking-wider">
-              <Hexagon class="w-3.5 h-3.5" /> K.I.P.
-            </button>
-          </div>
-
-          <div class="p-5 border-b border-white/5 shrink-0 relative overflow-hidden">
-            <div v-show="nexusTab === 'xbox'">
-              <div class="bg-black/40 rounded-2xl p-5 border border-white/5 flex flex-col items-center text-center">
-                <div class="relative w-16 h-16 mb-3">
-                  <div class="absolute inset-0 rounded-2xl blur-md transition-all duration-300" :class="state.settings.has_ms_token ? 'bg-emerald-500/50' : 'bg-white/20'"></div>
-                  <img v-if="state.settings.ms_name" :src="getAvatarUrl(state.settings.ms_name)" class="w-full h-full rounded-2xl object-cover border-2 relative z-10 border-black">
-                  <div v-else class="w-full h-full rounded-2xl border-2 border-black bg-[#121214] flex items-center justify-center relative z-10">
-                    <UserX class="w-6 h-6 text-white/30" />
-                  </div>
-                </div>
-
-                <h3 class="text-lg font-extrabold text-white">{{ state.settings.ms_name || t('Guest') }}</h3>
-                <div class="mt-1 mb-4">
-                  <span v-if="state.settings.has_ms_token" class="text-emerald-400 text-[9px] font-bold uppercase tracking-widest">Authenticated</span>
-                  <span v-else class="text-red-400 text-[9px] font-bold uppercase tracking-widest">Not Authenticated</span>
-                </div>
-
-                <div v-if="msAuthCode" class="w-full bg-black/60 border border-emerald-500/30 p-4 rounded-xl mb-4 text-center shadow-inner">
-                  <p class="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-2">{{ t('A browser window has opened. Enter the code below to securely link your Xbox Live account.') }}</p>
-                  <div class="text-3xl font-mono font-bold text-emerald-400 tracking-[0.2em] select-all cursor-pointer">{{ msAuthCode }}</div>
-                  <p class="text-[10px] text-emerald-400/50 uppercase tracking-widest mt-2 animate-pulse">{{ t('Awaiting Authorization...') }}</p>
-                </div>
-                <button v-else-if="!state.settings.has_ms_token" @click="startMsAuth" :disabled="isMsAuthing" class="kip-btn-primary w-full py-2 text-xs">
-                  <Loader v-if="isMsAuthing" class="w-3.5 h-3.5 animate-spin" />
-                  <span v-else>{{ t('Login with Xbox') }}</span>
-                </button>
-                <button v-else @click="logoutMs" class="kip-btn-danger w-full py-2 text-xs">
-                  {{ t('Logout') }}
-                </button>
-              </div>
-            </div>
-
-            <div v-show="nexusTab === 'kip'">
-              <div class="bg-black/40 rounded-2xl p-5 border border-white/5 flex flex-col items-center">
-                <template v-if="!state.settings.has_kip_token">
-                  <div class="w-full flex bg-black/60 p-1 rounded-xl mb-4 border border-white/5">
-                    <button @click="kipAuthForm.isLogin = true" :class="kipAuthForm.isLogin ? 'bg-indigo-500/20 text-indigo-400' : 'text-white/50'" class="flex-1 py-1.5 rounded-lg text-xs font-bold uppercase transition">Login</button>
-                    <button @click="kipAuthForm.isLogin = false" :class="!kipAuthForm.isLogin ? 'bg-indigo-500/20 text-indigo-400' : 'text-white/50'" class="flex-1 py-1.5 rounded-lg text-xs font-bold uppercase transition">Register</button>
-                  </div>
-                  <div class="w-full flex flex-col gap-2 mb-4">
-                    <input v-model="kipAuthForm.username" type="text" placeholder="Username" class="kip-input py-2 text-xs">
-                    <input v-if="!kipAuthForm.isLogin" v-model="kipAuthForm.email" type="email" placeholder="Email" class="kip-input py-2 text-xs">
-                    <input v-model="kipAuthForm.password" type="password" placeholder="Password" class="kip-input py-2 text-xs">
-                  </div>
-                  <button @click="submitKipAuth" :disabled="kipAuthForm.loading" class="kip-btn-primary w-full py-2 text-xs">
-                    <Loader v-if="kipAuthForm.loading" class="w-3.5 h-3.5 animate-spin" />
-                    <span v-else>{{ kipAuthForm.isLogin ? 'Login' : 'Create Account' }}</span>
-                  </button>
-                </template>
-                <template v-else>
-                  <Hexagon class="w-10 h-10 text-indigo-400 mb-2" />
-                  <h3 class="text-lg font-extrabold text-white">{{ state.settings.kip_username }}</h3>
-                  <div class="mt-1 mb-4">
-                    <span class="text-indigo-400 text-[9px] font-bold uppercase tracking-widest">K.I.P. Network</span>
-                  </div>
-                  <button @click="logoutKip" class="kip-btn-danger w-full py-2 text-xs">
-                    {{ t('Logout') }}
-                  </button>
-                </template>
-              </div>
-            </div>
-          </div>
-
-          <div class="flex-1 flex flex-col min-h-0 bg-black/20">
-            <div class="p-3 shrink-0 relative">
-              <UserPlus class="absolute left-6 top-1/2 -translate-y-1/2 text-white/40 w-4 h-4" />
-              <input v-model="newFriendName" @keyup.enter="addFriend" type="text" :placeholder="t('Add friend by nickname...')" class="kip-input pl-10 py-2 text-xs">
-            </div>
-
-            <div class="flex-1 overflow-y-auto custom-scroll px-3 pb-3 flex flex-col gap-2">
-              <div v-if="isFriendsLoading" class="py-10 text-center"><Loader class="w-5 h-5 animate-spin mx-auto text-emerald-400" /></div>
-              <div v-else-if="state.friends.length === 0" class="py-6 text-center text-white/30 text-xs border border-dashed border-white/10 rounded-xl mx-2">{{ t('No friends added yet.') }}</div>
-              <div v-else v-for="f in state.friends" :key="f.name" class="p-2.5 bg-black/40 border border-white/5 hover:border-white/10 rounded-xl flex items-center gap-3 group transition-colors cursor-pointer shrink-0 mx-1">
-                <div class="relative shrink-0">
-                  <img :src="getAvatarUrl(f.name)" class="w-8 h-8 rounded-lg bg-black/60 p-0.5 object-cover border border-white/5">
-                  <span class="absolute -bottom-1 -right-1 flex h-2.5 w-2.5">
-                    <span v-if="f.status === 'online'" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span class="relative inline-flex rounded-full h-2.5 w-2.5 border border-[#09090B]" :class="f.status === 'online' ? 'bg-emerald-500' : 'bg-white/20'"></span>
-                  </span>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <h4 class="font-bold text-white text-xs truncate">{{ f.name }}</h4>
-                </div>
-                <button @click.stop="removeFriend(f.name)" class="p-1.5 text-red-400/50 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition opacity-0 group-hover:opacity-100 shrink-0">
-                  <UserMinus class="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <Nexus v-if="state.isNexusOpen" />
       </transition>
     </div>
 
@@ -326,7 +220,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { Component } from 'vue'
 import {
   Hexagon,
@@ -337,9 +231,6 @@ import {
   X,
   Loader,
   Download,
-  UserX,
-  UserPlus,
-  UserMinus,
   Zap,
   LayoutDashboard,
   Wand2,
@@ -373,6 +264,7 @@ import Console from '@/views/Console.vue'
 import Support from '@/views/Support.vue'
 import AppSettings from '@/views/Settings.vue'
 import Overlay from '@/views/Overlay.vue'
+import Nexus from '@/views/Nexus.vue'
 
 import {
   state,
@@ -397,36 +289,14 @@ import {
 } from '@/store'
 import {
   bridge,
-  type GenericActionResult,
   type ImportDroppedModsResult,
 } from '@/bridge'
-
-interface KipAuthFormState {
-  isLogin: boolean
-  username: string
-  email: string
-  password: string
-  loading: boolean
-}
 
 const isSidebarCollapsed = ref<boolean>(false)
 const isUpdating = ref<boolean>(false)
 const hasUpdate = ref<boolean>(false)
-const isMsAuthing = ref<boolean>(false)
-const msAuthCode = ref<string>('')
-const newFriendName = ref<string>('')
-const isFriendsLoading = ref<boolean>(false)
-const nexusTab = ref<'xbox' | 'kip'>('xbox')
 
 let mouseIdleTimer: ReturnType<typeof setTimeout> | null = null
-
-const kipAuthForm = reactive<KipAuthFormState>({
-  isLogin: true,
-  username: '',
-  email: '',
-  password: '',
-  loading: false,
-})
 
 const bootLogs = ref<string[]>([
   'INITIALIZING NEURAL CORE...',
@@ -527,7 +397,6 @@ const checkForAppUpdates = async (): Promise<void> => {
       showToast(t('Update Available'), `Version ${res.version} is ready to install.`, 'info')
     }
   } catch {
-    // Ignored in offline environment
   }
 }
 
@@ -555,7 +424,6 @@ const initApp = async (): Promise<void> => {
       state.version = initData.version
     }
   } catch {
-    // Fallback retains default reactive constants
   }
 
   await loadSettings()
@@ -622,150 +490,6 @@ const changeInstance = async (): Promise<void> => {
   }
 }
 
-const loadFriends = async (): Promise<void> => {
-  isFriendsLoading.value = true
-  try {
-    state.friends = (await bridge.getFriends()) || []
-  } catch {
-    state.friends = []
-  } finally {
-    isFriendsLoading.value = false
-  }
-}
-
-const addFriend = async (): Promise<void> => {
-  const clean = newFriendName.value.trim()
-  if (!clean) return
-  try {
-    const res: GenericActionResult = await bridge.addFriend(clean)
-    if (res.success) {
-      showToast(t('Success'), res.msg, 'success')
-      newFriendName.value = ''
-      await loadFriends()
-    } else {
-      showToast(t('Error'), res.msg, 'danger')
-    }
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
-    showToast(t('Error'), errorMessage || t('Failed to add friend'), 'danger')
-  }
-}
-
-const removeFriend = async (name: string): Promise<void> => {
-  try {
-    const res: GenericActionResult = await bridge.removeFriend(name)
-    if (res.success) {
-      showToast(t('Removed'), res.msg, 'success')
-      await loadFriends()
-    } else {
-      showToast(t('Error'), res.msg, 'danger')
-    }
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
-    showToast(t('Error'), errorMessage || t('Failed to remove friend'), 'danger')
-  }
-}
-
-const startMsAuth = async (): Promise<void> => {
-  isMsAuthing.value = true
-  msAuthCode.value = ''
-  try {
-    const res = await bridge.msAuthStart()
-    if (!res) {
-      showToast(t('Error'), t('Could not reach Microsoft.'), 'danger')
-      isMsAuthing.value = false
-      return
-    }
-
-    if (res.user_code) {
-      msAuthCode.value = res.user_code
-    }
-
-    for (let i = 0; i < 30; i++) {
-      const authSuccess = await bridge.msAuthPoll(res.device_code)
-      if (authSuccess) {
-        await loadSettings()
-        showToast(t('Authenticated'), t('Xbox account linked.'), 'success')
-        break
-      }
-      await new Promise((r) => setTimeout(r, 5000))
-    }
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
-    showToast(t('Error'), errorMessage || t('Microsoft OAuth failed.'), 'danger')
-  } finally {
-    isMsAuthing.value = false
-    msAuthCode.value = ''
-  }
-}
-
-const logoutMs = async (): Promise<void> => {
-  try {
-    await bridge.msLogout()
-    await loadSettings()
-    showToast(t('Logged out'), t('Account unlinked.'), 'info')
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
-    showToast(t('Error'), errorMessage || t('Failed to unlink account.'), 'danger')
-  }
-}
-
-const submitKipAuth = async (): Promise<void> => {
-  if (kipAuthForm.loading) return
-
-  if (!kipAuthForm.username.trim() || !kipAuthForm.password.trim()) {
-    showToast(t('Error'), t('Please fill in all required fields.'), 'danger')
-    return
-  }
-
-  if (!kipAuthForm.isLogin && !kipAuthForm.email.trim()) {
-    showToast(t('Error'), t('Email is required for registration.'), 'danger')
-    return
-  }
-
-  kipAuthForm.loading = true
-  try {
-    let res: { success: boolean; token?: string; username?: string; msg?: string }
-    if (kipAuthForm.isLogin) {
-      res = await bridge.kipLogin(kipAuthForm.username.trim(), kipAuthForm.password)
-    } else {
-      res = await bridge.kipRegister(
-        kipAuthForm.username.trim(),
-        kipAuthForm.email.trim(),
-        kipAuthForm.password
-      )
-    }
-
-    if (res?.success) {
-      showToast(
-        t('Success'),
-        kipAuthForm.isLogin ? t('Logged in to K.I.P. Network') : t('K.I.P. Account created'),
-        'success'
-      )
-      await loadSettings()
-      kipAuthForm.password = ''
-    } else {
-      showToast(t('Error'), res?.msg || t('Authentication failed.'), 'danger')
-    }
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
-    showToast(t('Error'), errorMessage || t('Backend communication failed.'), 'danger')
-  } finally {
-    kipAuthForm.loading = false
-  }
-}
-
-const logoutKip = async (): Promise<void> => {
-  try {
-    await bridge.kipLogout()
-    await loadSettings()
-    showToast(t('Logged out'), t('Disconnected from K.I.P. Network.'), 'info')
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
-    showToast(t('Error'), errorMessage || t('Failed to disconnect.'), 'danger')
-  }
-}
-
 const handleFileDrop = async (e: DragEvent): Promise<void> => {
   e.preventDefault()
   e.stopPropagation()
@@ -793,13 +517,6 @@ const handleFileDrop = async (e: DragEvent): Promise<void> => {
     }
   }
 }
-
-watch(
-  () => state.isNexusOpen,
-  (val) => {
-    if (val) loadFriends()
-  }
-)
 
 onMounted(() => {
   setupTauriListeners({

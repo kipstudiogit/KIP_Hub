@@ -12,14 +12,18 @@ mod crash_service;
 mod database;
 mod doctor_manager;
 mod instance_manager;
+mod java_manager;
+mod launch;
 mod locales;
 mod media_manager;
 mod mod_manager;
 mod monitor_service;
 mod overlay_service;
 mod rpc_service;
-mod shield_manager;
+mod settings_manager;
+mod shield;
 mod signaling_service;
+mod store_manager;
 mod swarm_manager;
 mod system_utils;
 mod tool_manager;
@@ -41,12 +45,14 @@ use crash_service::CrashService;
 use database::DatabaseManager;
 use doctor_manager::DoctorManager;
 use instance_manager::InstanceManager;
+use java_manager::JavaManager;
 use media_manager::MediaManager;
 use monitor_service::MonitorService;
 use overlay_service::OverlayService;
 use rpc_service::RpcService;
-use shield_manager::ShieldManager;
+use shield::ShieldManager;
 use signaling_service::SignalingService;
+use store_manager::StoreManager;
 use swarm_manager::SwarmManager;
 use tunnel_manager::TunnelManager;
 use vcs_manager::VCSManager;
@@ -62,7 +68,8 @@ fn main() {
     let stop_signal = Arc::new(AtomicBool::new(false));
     let auth = Arc::new(AuthManager::new());
     let api = Arc::new(ApiManager::new());
-    let instance = Arc::new(InstanceManager::new());
+    let java = Arc::new(JavaManager::new());
+    let instance = Arc::new(InstanceManager::new(Arc::clone(&java)));
     let doctor = Arc::new(DoctorManager::new());
     let shield = Arc::new(ShieldManager::new());
     let swarm = Arc::new(SwarmManager::new());
@@ -73,11 +80,13 @@ fn main() {
     let cartographer = Arc::new(CartographerManager::new());
     let builder = Arc::new(BuilderManager::new());
     let monitor = Arc::new(MonitorService::new(Arc::clone(&db)));
+    let store = Arc::new(StoreManager::new());
 
     let app_state = AppState {
         db: Arc::clone(&db),
         auth,
         api: Arc::clone(&api),
+        java: Arc::clone(&java),
         instance,
         doctor,
         shield,
@@ -89,6 +98,7 @@ fn main() {
         cartographer,
         builder,
         monitor: Arc::clone(&monitor),
+        store,
         stop_signal: Arc::clone(&stop_signal),
         cached_kip_profile: Arc::new(Mutex::new(None)),
         cached_ms_profile: Arc::new(Mutex::new(None)),
@@ -187,10 +197,14 @@ fn main() {
             commands::get_local_mods,
             commands::toggle_mod,
             commands::delete_mod,
+            commands::batch_toggle_mods,
+            commands::batch_delete_mods,
+            commands::open_content_folder,
             commands::search_store,
             commands::get_store_full_details,
             commands::download_store_item,
             commands::download_specific_file,
+            commands::uninstall_store_item,
             commands::generate_auto_build,
             commands::resolve_keybinds,
             commands::swarm_seed_start,
@@ -204,6 +218,24 @@ fn main() {
             commands::deploy_docker_server,
             commands::ptero_connect,
             commands::ptero_action,
+            settings_manager::get_settings,
+            settings_manager::save_setting,
+            settings_manager::reset_settings_to_default,
+            settings_manager::validate_java_binary,
+            settings_manager::test_ai_connection,
+            settings_manager::vacuum_database,
+            settings_manager::open_instance_folder,
+            shield::shield_scan_full,
+            shield::shield_scan_file,
+            shield::shield_quarantine_threat,
+            shield::shield_restore_threat,
+            shield::shield_shred_threat,
+            shield::shield_get_vault,
+            commands_ext::import_modpack_or_archive,
+            commands_ext::auto_tune_ram,
+            commands_ext::inspect_installed_content,
+            commands_ext::preflight_inspection,
+            commands_ext::auto_repair_instance,
             commands_ext::get_dashboard_stats,
             commands_ext::toggle_console_stream,
             commands_ext::ping_server,
@@ -244,8 +276,6 @@ fn main() {
             commands_ext::toggle_safe_mode,
             commands_ext::save_note,
             commands_ext::get_note,
-            commands_ext::get_settings,
-            commands_ext::save_setting,
             commands_ext::get_init_data,
             commands_ext::get_translations,
             commands_ext::window_minimize,

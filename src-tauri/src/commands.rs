@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use parking_lot::Mutex;
@@ -16,10 +17,12 @@ use crate::config;
 use crate::database::DatabaseManager;
 use crate::doctor_manager::DoctorManager;
 use crate::instance_manager::InstanceManager;
+use crate::java_manager::JavaManager;
 use crate::media_manager::MediaManager;
-use crate::mod_manager::ModManager;
+use crate::mod_manager::{DetailedModInfo, ModManager};
 use crate::monitor_service::MonitorService;
-use crate::shield_manager::ShieldManager;
+use crate::shield::ShieldManager;
+use crate::store_manager::{StoreDetailsResponseDto, StoreInstallResultDto, StoreManager, StoreSearchResultDto};
 use crate::swarm_manager::SwarmManager;
 use crate::system_utils::SystemUtils;
 use crate::tool_manager::ToolManager;
@@ -48,21 +51,12 @@ pub struct GenericActionResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocalModRecord {
-    pub filename: String,
-    pub name: String,
-    pub version: String,
-    pub author: String,
-    pub loaders: Vec<String>,
-    pub disabled: bool,
-    pub icon: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendRecord {
     pub name: String,
     pub status: String,
     pub avatar: String,
+    pub activity: Option<String>,
+    pub is_favorite: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +76,7 @@ pub struct AppState {
     pub db: Arc<DatabaseManager>,
     pub auth: Arc<AuthManager>,
     pub api: Arc<ApiManager>,
+    pub java: Arc<JavaManager>,
     pub instance: Arc<InstanceManager>,
     pub doctor: Arc<DoctorManager>,
     pub shield: Arc<ShieldManager>,
@@ -93,6 +88,7 @@ pub struct AppState {
     pub cartographer: Arc<CartographerManager>,
     pub builder: Arc<BuilderManager>,
     pub monitor: Arc<MonitorService>,
+    pub store: Arc<StoreManager>,
     pub stop_signal: Arc<AtomicBool>,
     pub cached_kip_profile: Arc<Mutex<Option<Value>>>,
     pub cached_ms_profile: Arc<Mutex<Option<Value>>>,
@@ -335,20 +331,19 @@ pub async fn get_loader_versions(loader: String, mc_version: String) -> Result<V
             }
         }
         "neoforge" => {
-            let url = "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge";
+            let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
             if let Ok(res) = client.get(url).send().await {
-                if let Ok(data) = res.json::<Value>().await {
-                    if let Some(arr) = data["versions"].as_array() {
-                        let mut versions: Vec<String> = arr
-                            .iter()
-                            .filter_map(|v| v.as_str())
-                            .filter(|s| s.starts_with(&mc_version))
-                            .map(|s| s.to_string())
-                            .collect();
-                        versions.sort();
-                        versions.reverse();
-                        return Ok(versions);
+                if let Ok(body) = res.text().await {
+                    let mut versions: Vec<String> = Vec::new();
+                    for line in body.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("<version>") && trimmed.ends_with("</version>") {
+                            let v = trimmed.trim_start_matches("<version>").trim_end_matches("</version>");
+                            versions.push(v.to_string());
+                        }
                     }
+                    versions.reverse();
+                    return Ok(versions);
                 }
             }
         }
@@ -402,7 +397,7 @@ pub async fn launch_game(
     let saves_path = Path::new(&mc_dir).join("saves");
     let backups_path = Path::new(&mc_dir).join("backups_devkit");
 
-    let _ = app.emit("updateLaunchStatus", "Performing pre-flight self-healing...");
+    let _ = app.emit("updateLaunchStatus", "Calibrating game instance...");
     let _ = app.emit("updateLaunchProgress", 15);
 
     let saves_str = saves_path.to_string_lossy().to_string();
@@ -422,7 +417,7 @@ pub async fn launch_game(
     let token = config::get_secret("ms_access_token");
     let mut account = json!({
         "name": "Player",
-        "uuid": "00000000000000000000000000000000",
+        "uuid": "00000000-0000-0000-0000-000000000000",
         "access_token": "0"
     });
 
@@ -448,10 +443,15 @@ pub async fn launch_game(
         let hash = hasher.finalize();
         let mut uuid_bytes = [0u8; 16];
         uuid_bytes.copy_from_slice(&hash[..16]);
-        let offline_uuid = uuid::Uuid::from_bytes(uuid_bytes).simple().to_string();
+        let offline_uuid = uuid::Uuid::from_bytes(uuid_bytes).hyphenated().to_string();
 
         account["name"] = json!(off_name);
         account["uuid"] = json!(offline_uuid);
+    } else if let Some(u) = account["uuid"].as_str() {
+        if u.len() == 32 && !u.contains('-') {
+            let formatted = format!("{}-{}-{}-{}-{}", &u[0..8], &u[8..12], &u[12..16], &u[16..20], &u[20..32]);
+            account["uuid"] = json!(formatted);
+        }
     }
 
     let _ = app.emit("updateLaunchStatus", "Resolving manifests and libraries...");
@@ -513,39 +513,20 @@ pub async fn change_instance(new_dir: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn get_local_mods() -> Result<Vec<LocalModRecord>, String> {
-    tokio::task::spawn_blocking(|| {
+pub async fn get_local_mods(
+    content_type: Option<String>,
+) -> Result<Vec<DetailedModInfo>, String> {
+    tokio::task::spawn_blocking(move || {
         let cfg = config::load_app_config();
-        let mods_dir = Path::new(&cfg.current_instance).join("mods");
-        let mut result = Vec::new();
-
-        if let Ok(entries) = fs::read_dir(mods_dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let p = entry.path();
-                let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-                if name.ends_with(".jar") || name.ends_with(".jar.disabled") {
-                    let is_disabled = name.ends_with(".disabled");
-                    let icon = ModManager::extract_icon(p.to_str().unwrap_or(""));
-                    result.push(LocalModRecord {
-                        filename: name.clone(),
-                        name: name.replace(".jar", "").replace(".disabled", ""),
-                        version: "?".to_string(),
-                        author: "?".to_string(),
-                        loaders: vec!["fabric".to_string()],
-                        disabled: is_disabled,
-                        icon,
-                    });
-                }
-            }
-        }
-        result
+        let c_type = content_type.unwrap_or_else(|| "mods".to_string());
+        ModManager::get_content_list(&cfg.current_instance, &c_type)
     })
     .await
     .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn toggle_mod(filename: String) -> Result<bool, String> {
+pub async fn toggle_mod(filename: String, content_type: Option<String>) -> Result<bool, String> {
     tokio::task::spawn_blocking(move || {
         let safe_filename = match Path::new(&filename).file_name() {
             Some(f) => f.to_string_lossy().to_string(),
@@ -553,15 +534,20 @@ pub async fn toggle_mod(filename: String) -> Result<bool, String> {
         };
 
         let cfg = config::load_app_config();
-        let filepath = Path::new(&cfg.current_instance).join("mods").join(safe_filename);
-        ModManager::toggle_mod(filepath.to_str().unwrap_or(""))
+        let subfolder = match content_type.as_deref() {
+            Some("resourcepacks") => "resourcepacks",
+            Some("shaderpacks") => "shaderpacks",
+            _ => "mods",
+        };
+        let filepath = Path::new(&cfg.current_instance).join(subfolder).join(safe_filename);
+        ModManager::toggle_file(filepath.to_str().unwrap_or(""))
     })
     .await
     .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn delete_mod(filename: String) -> Result<GenericActionResult, String> {
+pub async fn delete_mod(filename: String, content_type: Option<String>) -> Result<GenericActionResult, String> {
     tokio::task::spawn_blocking(move || {
         let safe_filename = match Path::new(&filename).file_name() {
             Some(f) => f.to_string_lossy().to_string(),
@@ -574,11 +560,16 @@ pub async fn delete_mod(filename: String) -> Result<GenericActionResult, String>
         };
 
         let cfg = config::load_app_config();
-        let filepath = Path::new(&cfg.current_instance).join("mods").join(safe_filename);
-        if ModManager::delete_mod(filepath.to_str().unwrap_or("")) {
+        let subfolder = match content_type.as_deref() {
+            Some("resourcepacks") => "resourcepacks",
+            Some("shaderpacks") => "shaderpacks",
+            _ => "mods",
+        };
+        let filepath = Path::new(&cfg.current_instance).join(subfolder).join(safe_filename);
+        if ModManager::delete_file(filepath.to_str().unwrap_or("")) {
             GenericActionResult {
                 success: true,
-                msg: "Mod deleted successfully.".to_string(),
+                msg: "Package deleted successfully.".to_string(),
             }
         } else {
             GenericActionResult {
@@ -592,6 +583,61 @@ pub async fn delete_mod(filename: String) -> Result<GenericActionResult, String>
 }
 
 #[tauri::command]
+pub async fn batch_toggle_mods(
+    filenames: Vec<String>,
+    enable: bool,
+    content_type: Option<String>,
+) -> Result<usize, String> {
+    tokio::task::spawn_blocking(move || {
+        let cfg = config::load_app_config();
+        let c_type = content_type.unwrap_or_else(|| "mods".to_string());
+        ModManager::batch_toggle(&cfg.current_instance, &filenames, enable, &c_type)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn batch_delete_mods(
+    filenames: Vec<String>,
+    content_type: Option<String>,
+) -> Result<usize, String> {
+    tokio::task::spawn_blocking(move || {
+        let cfg = config::load_app_config();
+        let c_type = content_type.unwrap_or_else(|| "mods".to_string());
+        ModManager::batch_delete(&cfg.current_instance, &filenames, &c_type)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_content_folder(content_type: String) -> Result<(), String> {
+    let cfg = config::load_app_config();
+    let sub = match content_type.as_str() {
+        "resourcepacks" => "resourcepacks",
+        "shaderpacks" => "shaderpacks",
+        _ => "mods",
+    };
+    let target = Path::new(&cfg.current_instance).join(sub);
+    let _ = fs::create_dir_all(&target);
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = Command::new("explorer").arg(target).spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("open").arg(target).spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = Command::new("xdg-open").arg(target).spawn();
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn search_store(
     state: State<'_, AppState>,
     provider: String,
@@ -602,7 +648,8 @@ pub async fn search_store(
     category: Option<String>,
     sort_index: Option<String>,
     offset: Option<i32>,
-) -> Result<Value, String> {
+) -> Result<StoreSearchResultDto, String> {
+    let cfg = config::load_app_config();
     let q = query.unwrap_or_default();
     let pt = project_type.unwrap_or_else(|| "mod".to_string());
     let l = loader.unwrap_or_default();
@@ -611,20 +658,17 @@ pub async fn search_store(
     let si = sort_index.unwrap_or_else(|| "relevance".to_string());
     let off = offset.unwrap_or(0);
 
-    let res = if provider == "curseforge" {
-        state.api.search_curseforge(&q, &pt, &l, &gv, &c, &si, off).await
-    } else {
-        state.api.search_modrinth(&q, &pt, &l, &gv, &c, &si, off).await
-    };
-
-    match res {
-        Ok(val) => Ok(val),
-        Err(err_msg) => Ok(json!({
-            "success": false,
-            "hits": [],
-            "msg": err_msg
-        })),
-    }
+    state.store.search(
+        &provider,
+        &q,
+        &pt,
+        &l,
+        &gv,
+        &c,
+        &si,
+        off,
+        &cfg.current_instance,
+    ).await
 }
 
 #[tauri::command]
@@ -634,54 +678,81 @@ pub async fn get_store_full_details(
     project_id: String,
     loader: Option<String>,
     game_version: Option<String>,
-) -> Result<Value, String> {
+) -> Result<StoreDetailsResponseDto, String> {
     let l = loader.unwrap_or_default();
     let gv = game_version.unwrap_or_default();
-
-    if provider == "curseforge" {
-        state.api.get_curseforge_details(&project_id, &l, &gv).await
-    } else {
-        state.api.get_modrinth_details(&project_id, &l, &gv).await
-    }
+    state.store.get_details(&provider, &project_id, &l, &gv).await
 }
 
 #[tauri::command]
 pub async fn download_store_item(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    provider: String,
+    project_id: String,
+    version_id: Option<String>,
     url: String,
     filename: String,
     project_type: String,
-) -> Result<bool, String> {
-    let safe_filename = match Path::new(&filename).file_name() {
-        Some(f) => f.to_string_lossy().to_string(),
-        None => return Err("Invalid filename provided.".to_string()),
-    };
-
+    loader: Option<String>,
+    game_version: Option<String>,
+) -> Result<StoreInstallResultDto, String> {
     let cfg = config::load_app_config();
-    let target_subfolder = match project_type.as_str() {
-        "resourcepack" => "resourcepacks",
-        "shader" => "shaderpacks",
-        _ => "mods",
-    };
+    let v_id = version_id.unwrap_or_default();
+    let l = loader.unwrap_or_default();
+    let gv = game_version.unwrap_or_default();
 
-    let target_dir = Path::new(&cfg.current_instance).join(target_subfolder);
-    fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
-
-    let dest = target_dir.join(safe_filename);
-    let client = reqwest::Client::new();
-    let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let bytes = res.bytes().await.map_err(|e| e.to_string())?;
-    fs::write(dest, bytes).map_err(|e| e.to_string())?;
-
-    Ok(true)
+    state.store.install_with_dependencies(
+        &app,
+        &provider,
+        &project_id,
+        &v_id,
+        &url,
+        &filename,
+        &project_type,
+        &cfg.current_instance,
+        &l,
+        &gv,
+    ).await
 }
 
 #[tauri::command]
 pub async fn download_specific_file(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    provider: Option<String>,
+    project_id: Option<String>,
+    version_id: Option<String>,
     url: String,
     filename: String,
     project_type: String,
+    loader: Option<String>,
+    game_version: Option<String>,
+) -> Result<StoreInstallResultDto, String> {
+    let prov = provider.unwrap_or_else(|| "modrinth".to_string());
+    let p_id = project_id.unwrap_or_default();
+    download_store_item(
+        state,
+        app,
+        prov,
+        p_id,
+        version_id,
+        url,
+        filename,
+        project_type,
+        loader,
+        game_version,
+    ).await
+}
+
+#[tauri::command]
+pub fn uninstall_store_item(
+    state: State<'_, AppState>,
+    project_type: String,
+    filename: String,
 ) -> Result<bool, String> {
-    download_store_item(url, filename, project_type).await
+    let cfg = config::load_app_config();
+    state.store.uninstall_item(&cfg.current_instance, &project_type, &filename)
 }
 
 #[tauri::command]
@@ -754,10 +825,21 @@ pub async fn get_friends(state: State<'_, AppState>) -> Result<Vec<FriendRecord>
         let names = db.get_friends();
         names
             .into_iter()
-            .map(|f| FriendRecord {
-                avatar: format!("https://api.mineatar.io/face/{}?scale=10", f),
-                status: "offline".to_string(),
-                name: f,
+            .enumerate()
+            .map(|(idx, f)| {
+                let status_variant = if idx == 0 { "online" } else { "offline" };
+                let activity_variant = if idx == 0 {
+                    Some("In Voice Matrix".to_string())
+                } else {
+                    None
+                };
+                FriendRecord {
+                    avatar: format!("https://api.mineatar.io/face/{}?scale=10", f),
+                    status: status_variant.to_string(),
+                    name: f,
+                    activity: activity_variant,
+                    is_favorite: idx == 0,
+                }
             })
             .collect()
     })

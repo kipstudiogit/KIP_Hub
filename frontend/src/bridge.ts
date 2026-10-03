@@ -17,18 +17,26 @@ export interface GenericActionResult {
 
 export interface LocalModRecord {
   filename: string
+  id: string
   name: string
   version: string
   author: string
+  description: string
   loaders: string[]
   disabled: boolean
   icon: string
+  size_bytes: number
+  date_modified: string
+  content_type: string
+  dependencies: string[]
 }
 
 export interface FriendRecord {
   name: string
   status: string
   avatar: string
+  activity?: string | null
+  is_favorite?: boolean
 }
 
 export interface AutoBuildResult {
@@ -96,36 +104,158 @@ export interface ModGraphDataDto {
   edges: GraphEdge[]
 }
 
-export interface StoreItemFile {
+export interface StoreItemFileDto {
   filename: string
   url: string
-  primary?: boolean
+  primary: boolean
+  size: number
 }
 
-export interface StoreItemVersion {
+export type StoreItemFile = StoreItemFileDto
+
+export interface StoreItemDependencyDto {
+  project_id: string
+  version_id?: string | null
+  dependency_type: string
+  file_name?: string | null
+}
+
+export interface StoreItemVersionDto {
   id: string
   version_number: string
   name: string
   date: string
-  changelog?: string
-  files: StoreItemFile[]
-  expanded?: boolean
+  changelog: string
+  files: StoreItemFileDto[]
+  dependencies: StoreItemDependencyDto[]
+  game_versions: string[]
+  loaders: string[]
+}
+
+export type StoreItemVersion = StoreItemVersionDto
+
+export interface StoreItemGalleryDto {
+  url: string
+  title?: string | null
+}
+
+export interface StoreItemDetailsDto {
+  body: string
+  gallery: StoreItemGalleryDto[]
+}
+
+export type StoreItemDetailsData = StoreItemDetailsDto
+
+export interface StoreItemRecordDto {
+  project_id: string
+  slug: string
+  title: string
+  author: string
+  description: string
+  icon_url: string
+  downloads: number
+  follows: number
+  categories: string[]
+  provider: 'modrinth' | 'curseforge'
+  project_type: string
+  is_installed: boolean
+  installed_filename?: string | null
   downloading?: boolean
-  downloaded?: boolean
   progress?: number
-  downloadTarget?: string
+  status_text?: string
 }
 
-export interface StoreItemDetailsData {
-  body?: string
-  gallery?: Array<{ url: string; title?: string }>
-}
-
-export interface StoreDetailsResponse {
+export interface StoreSearchResultDto {
   success: boolean
-  details: StoreItemDetailsData
-  versions: StoreItemVersion[]
-  msg?: string
+  hits: StoreItemRecordDto[]
+  total_hits: number
+  msg?: string | null
+}
+
+export interface StoreDetailsResponseDto {
+  success: boolean
+  details: StoreItemDetailsDto
+  versions: StoreItemVersionDto[]
+  msg?: string | null
+}
+
+export type StoreDetailsResponse = StoreDetailsResponseDto
+
+export interface StoreInstallResultDto {
+  success: boolean
+  filename: string
+  installed_dependencies: string[]
+  message: string
+}
+
+export interface JavaValidationResultDto {
+  valid: boolean
+  version_str: string
+  major: number
+  message: string
+}
+
+export interface AiTestResultDto {
+  success: boolean
+  latency_ms: number
+  message: string
+}
+
+export interface ThreatIndicatorDto {
+  category: string
+  title: string
+  severity: string
+  weight: number
+  location: string
+}
+
+export interface FileSecurityReportDto {
+  filepath: string
+  filename: string
+  sha256: string
+  threat_score: number
+  threat_level: 'CLEAN' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  is_clean: boolean
+  entropy: number
+  indicators: ThreatIndicatorDto[]
+  file_size: number
+}
+
+export interface ShieldScanReportDto {
+  total_scanned: number
+  clean_count: number
+  threat_count: number
+  critical_count: number
+  threats: FileSecurityReportDto[]
+  timestamp: string
+}
+
+export interface QuarantineRecordDto {
+  id: string
+  original_path: string
+  filename: string
+  isolated_filename: string
+  threat_name: string
+  threat_score: number
+  sha256: string
+  quarantined_at: string
+  size_bytes: number
+}
+
+export interface HubPreset {
+  id: string
+  title: string
+  author: string
+  description: string
+  preset: string[]
+}
+
+export interface SwarmStatusDto {
+  name: string
+  seeders: number
+  peers: number
+  upload_rate: number
+  total_upload: number
 }
 
 export interface ToolExecutionResult {
@@ -147,6 +277,49 @@ export interface AppUpdateCheckResult {
   version?: string
   body?: string
   error?: string
+}
+
+export interface ContentInspectionDto {
+  detected_loader: string
+  detected_version: string
+  mod_count: usizeNumber
+  incompatible_mods: string[]
+  recommended_ram_gb: number
+  is_clean: boolean
+}
+
+export type usizeNumber = number
+
+export interface PreflightIssueDto {
+  level: string
+  title: string
+  description: string
+  auto_fixable: boolean
+}
+
+export interface PreflightReportDto {
+  ready_to_launch: boolean
+  java_compatible: boolean
+  java_version: string
+  java_path: string
+  issues: PreflightIssueDto[]
+  memory_allocated_gb: number
+  total_system_memory_gb: number
+}
+
+export interface AutoRepairResultDto {
+  success: boolean
+  fixed_count: number
+  message: string
+}
+
+export interface ModpackImportResultDto {
+  success: boolean
+  pack_name: string
+  mc_version: string
+  loader: string
+  mod_count: number
+  message: string
 }
 
 export interface TauriEventCallbackMap {
@@ -214,6 +387,26 @@ export async function invokeSafe<T>(command: string, args: Record<string, unknow
 }
 
 export const bridge = {
+  async importModpackOrArchive(filePath: string): Promise<ModpackImportResultDto> {
+    return await invokeSafe<ModpackImportResultDto>('import_modpack_or_archive', { filePath })
+  },
+
+  async autoTuneRam(ramGb: number): Promise<boolean> {
+    return await invokeSafe<boolean>('auto_tune_ram', { ramGb })
+  },
+
+  async inspectInstalledContent(): Promise<ContentInspectionDto> {
+    return await invokeSafe<ContentInspectionDto>('inspect_installed_content')
+  },
+
+  async preflightInspection(version: string, loader: string): Promise<PreflightReportDto> {
+    return await invokeSafe<PreflightReportDto>('preflight_inspection', { version, loader })
+  },
+
+  async autoRepairInstance(version: string, loader: string): Promise<AutoRepairResultDto> {
+    return await invokeSafe<AutoRepairResultDto>('auto_repair_instance', { version, loader })
+  },
+
   async getInitData(): Promise<AppInitData> {
     return await invokeSafe<AppInitData>('get_init_data')
   },
@@ -224,6 +417,50 @@ export const bridge = {
 
   async saveSetting(key: string, value: unknown): Promise<boolean> {
     return await invokeSafe<boolean>('save_setting', { key, value })
+  },
+
+  async resetSettingsToDefault(): Promise<Record<string, unknown>> {
+    return await invokeSafe<Record<string, unknown>>('reset_settings_to_default')
+  },
+
+  async validateJavaBinary(path: string): Promise<JavaValidationResultDto> {
+    return await invokeSafe<JavaValidationResultDto>('validate_java_binary', { path })
+  },
+
+  async testAiConnection(provider: string, model?: string | null, endpoint?: string | null): Promise<AiTestResultDto> {
+    return await invokeSafe<AiTestResultDto>('test_ai_connection', { provider, model: model || null, endpoint: endpoint || null })
+  },
+
+  async vacuumDatabase(): Promise<string> {
+    return await invokeSafe<string>('vacuum_database')
+  },
+
+  async openInstanceFolder(): Promise<void> {
+    return await invokeSafe<void>('open_instance_folder')
+  },
+
+  async shieldScanFull(targetDir?: string | null): Promise<ShieldScanReportDto> {
+    return await invokeSafe<ShieldScanReportDto>('shield_scan_full', { targetDir: targetDir || null })
+  },
+
+  async shieldScanFile(filepath: string): Promise<FileSecurityReportDto> {
+    return await invokeSafe<FileSecurityReportDto>('shield_scan_file', { filepath })
+  },
+
+  async shieldQuarantineThreat(filepath: string): Promise<QuarantineRecordDto> {
+    return await invokeSafe<QuarantineRecordDto>('shield_quarantine_threat', { filepath })
+  },
+
+  async shieldRestoreThreat(quarantineId: string): Promise<boolean> {
+    return await invokeSafe<boolean>('shield_restore_threat', { quarantineId })
+  },
+
+  async shieldShredThreat(quarantineId: string): Promise<boolean> {
+    return await invokeSafe<boolean>('shield_shred_threat', { quarantineId })
+  },
+
+  async shieldGetVault(): Promise<QuarantineRecordDto[]> {
+    return await invokeSafe<QuarantineRecordDto[]>('shield_get_vault')
   },
 
   async getTranslations(lang: string): Promise<Record<string, string>> {
@@ -254,16 +491,115 @@ export const bridge = {
     return await invokeSafe<boolean>('change_instance', { newDir })
   },
 
-  async getLocalMods(): Promise<LocalModRecord[]> {
-    return await invokeSafe<LocalModRecord[]>('get_local_mods')
+  async getLocalMods(contentType?: string): Promise<LocalModRecord[]> {
+    return await invokeSafe<LocalModRecord[]>('get_local_mods', { contentType: contentType || 'mods' })
   },
 
-  async toggleMod(filename: string): Promise<boolean> {
-    return await invokeSafe<boolean>('toggle_mod', { filename })
+  async toggleMod(filename: string, contentType?: string): Promise<boolean> {
+    return await invokeSafe<boolean>('toggle_mod', { filename, contentType: contentType || 'mods' })
   },
 
-  async deleteMod(filename: string): Promise<GenericActionResult> {
-    return await invokeSafe<GenericActionResult>('delete_mod', { filename })
+  async deleteMod(filename: string, contentType?: string): Promise<GenericActionResult> {
+    return await invokeSafe<GenericActionResult>('delete_mod', { filename, contentType: contentType || 'mods' })
+  },
+
+  async batchToggleMods(filenames: string[], enable: boolean, contentType?: string): Promise<number> {
+    return await invokeSafe<number>('batch_toggle_mods', { filenames, enable, contentType: contentType || 'mods' })
+  },
+
+  async batchDeleteMods(filenames: string[], contentType?: string): Promise<number> {
+    return await invokeSafe<number>('batch_delete_mods', { filenames, contentType: contentType || 'mods' })
+  },
+
+  async openContentFolder(contentType: string): Promise<void> {
+    return await invokeSafe<void>('open_content_folder', { contentType })
+  },
+
+  async searchStore(
+    provider: string,
+    query?: string | null,
+    projectType?: string | null,
+    loader?: string | null,
+    gameVersion?: string | null,
+    category?: string | null,
+    sortIndex?: string | null,
+    offset?: number | null
+  ): Promise<StoreSearchResultDto> {
+    return await invokeSafe<StoreSearchResultDto>('search_store', {
+      provider,
+      query: query || null,
+      projectType: projectType || null,
+      loader: loader || null,
+      gameVersion: gameVersion || null,
+      category: category || null,
+      sortIndex: sortIndex || null,
+      offset: offset || 0,
+    })
+  },
+
+  async getStoreFullDetails(
+    provider: string,
+    projectId: string,
+    loader?: string | null,
+    gameVersion?: string | null
+  ): Promise<StoreDetailsResponseDto> {
+    return await invokeSafe<StoreDetailsResponseDto>('get_store_full_details', {
+      provider,
+      projectId,
+      loader: loader || null,
+      gameVersion: gameVersion || null,
+    })
+  },
+
+  async downloadStoreItem(
+    provider: string,
+    projectId: string,
+    versionId: string | null,
+    url: string,
+    filename: string,
+    projectType: string,
+    loader?: string | null,
+    gameVersion?: string | null
+  ): Promise<StoreInstallResultDto> {
+    return await invokeSafe<StoreInstallResultDto>('download_store_item', {
+      provider,
+      projectId,
+      versionId,
+      url,
+      filename,
+      projectType,
+      loader: loader || null,
+      gameVersion: gameVersion || null,
+    })
+  },
+
+  async downloadSpecificFile(
+    provider: string | null,
+    projectId: string | null,
+    versionId: string | null,
+    url: string,
+    filename: string,
+    projectType: string,
+    loader?: string | null,
+    gameVersion?: string | null
+  ): Promise<StoreInstallResultDto> {
+    return await invokeSafe<StoreInstallResultDto>('download_specific_file', {
+      provider,
+      projectId,
+      versionId,
+      url,
+      filename,
+      projectType,
+      loader: loader || null,
+      gameVersion: gameVersion || null,
+    })
+  },
+
+  async uninstallStoreItem(projectType: string, filename: string): Promise<boolean> {
+    return await invokeSafe<boolean>('uninstall_store_item', {
+      projectType,
+      filename,
+    })
   },
 
   async generateAutoBuild(prompt: string, mcVersion: string, loader: string): Promise<AutoBuildResult> {
@@ -284,6 +620,22 @@ export const bridge = {
 
   async exportModpack(): Promise<GenericActionResult> {
     return await invokeSafe<GenericActionResult>('export_modpack')
+  },
+
+  async fetchHub(): Promise<HubPreset[]> {
+    return await invokeSafe<HubPreset[]>('fetch_hub')
+  },
+
+  async publishHub(title: string, author: string, desc: string, mods: string[]): Promise<boolean> {
+    return await invokeSafe<boolean>('publish_hub', { title, author, desc, mods })
+  },
+
+  async swarmDownload(magnet: string, targetDir: string): Promise<{ success: boolean; msg?: string }> {
+    return await invokeSafe<{ success: boolean; msg?: string }>('swarm_download', { magnet, targetDir })
+  },
+
+  async swarmSeedStatus(): Promise<SwarmStatusDto[]> {
+    return await invokeSafe<SwarmStatusDto[]>('swarm_seed_status')
   },
 
   async importDroppedMods(files: string[]): Promise<ImportDroppedModsResult> {

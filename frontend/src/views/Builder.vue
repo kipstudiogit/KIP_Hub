@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col min-h-0 relative">
+  <div class="h-full flex flex-col min-h-0 relative select-none">
     <div class="mb-8 shrink-0 stagger-1">
       <h2 class="text-3xl font-extrabold mb-1 flex items-center gap-3">
         <Wand2 class="text-indigo-400 w-8 h-8" /> {{ t('Auto-Builder') }}
@@ -91,8 +91,8 @@ import {
   invokeSafe,
   type AutoBuildResult,
   type KeybindResolveResult,
-  type StoreDetailsResponse,
-  type StoreItemFile,
+  type StoreDetailsResponseDto,
+  type StoreItemFileDto,
 } from '@/bridge'
 
 type SupportedLoader = 'fabric' | 'forge' | 'neoforge' | 'quilt'
@@ -166,7 +166,7 @@ const generateAutoBuild = async (): Promise<void> => {
         builderData.value.progress = 10 + (i / allSlugs.length) * 80
 
         try {
-          const versions = await invokeSafe<StoreDetailsResponse>('get_store_full_details', {
+          const versions = await invokeSafe<StoreDetailsResponseDto>('get_store_full_details', {
             provider: 'modrinth',
             projectId: slug,
             loader: builderData.value.loader,
@@ -176,20 +176,24 @@ const generateAutoBuild = async (): Promise<void> => {
           if (versions && versions.success && versions.versions && versions.versions.length > 0) {
             const targetVer = versions.versions[0]
             if (targetVer && targetVer.files && targetVer.files.length > 0) {
-              const file = targetVer.files.find((f: StoreItemFile) => f.primary) || targetVer.files[0]
+              const file = targetVer.files.find((f: StoreItemFileDto) => f.primary) || targetVer.files[0]
               if (file) {
                 builderData.value.status = `${t('Downloading')} ${file.filename}...`
-                await invokeSafe<boolean>('download_specific_file', {
-                  url: file.url,
-                  filename: file.filename,
-                  projectType: 'mod',
-                })
+                await bridge.downloadSpecificFile(
+                  'modrinth',
+                  slug,
+                  targetVer.id,
+                  file.url,
+                  file.filename,
+                  'mod',
+                  builderData.value.loader,
+                  builderData.value.mc_version
+                )
                 successCount++
               }
             }
           }
         } catch {
-          // Ignored
         }
       }
 
@@ -252,7 +256,6 @@ onMounted(async () => {
         builderData.value.mc_version = state.mcVersions[0] || ''
       }
     } catch {
-      // Ignored
     }
   } else if (!builderData.value.mc_version && state.mcVersions.length > 0) {
     builderData.value.mc_version = state.mcVersions[0] || ''

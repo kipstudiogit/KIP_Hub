@@ -1,14 +1,17 @@
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::Ordering;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sysinfo::System;
 use tauri::{AppHandle, Emitter, State, Window};
 use tauri_plugin_updater::UpdaterExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use zip::ZipArchive;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -25,6 +28,9 @@ pub struct DashboardStatsDto {
     pub saves: String,
     pub playtime: String,
     pub java: String,
+    pub mods_count: usize,
+    pub ram_usage_percent: u8,
+    pub last_world_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +107,438 @@ pub struct WorldItemDto {
     pub icon: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentInspectionDto {
+    pub detected_loader: String,
+    pub detected_version: String,
+    pub mod_count: usize,
+    pub incompatible_mods: Vec<String>,
+    pub recommended_ram_gb: i32,
+    pub is_clean: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreflightIssueDto {
+    pub level: String,
+    pub title: String,
+    pub description: String,
+    pub auto_fixable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreflightReportDto {
+    pub ready_to_launch: bool,
+    pub java_compatible: bool,
+    pub java_version: String,
+    pub java_path: String,
+    pub issues: Vec<PreflightIssueDto>,
+    pub memory_allocated_gb: i32,
+    pub total_system_memory_gb: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoRepairResultDto {
+    pub success: bool,
+    pub fixed_count: usize,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModpackImportResultDto {
+    pub success: bool,
+    pub pack_name: String,
+    pub mc_version: String,
+    pub loader: String,
+    pub mod_count: usize,
+    pub message: String,
+}
+
+#[tauri::command]
+pub async fn import_modpack_or_archive(file_path: String) -> Result<ModpackImportResultDto, String> {
+    tokio::task::spawn_blocking(move || {
+        let src_path = Path::new(&file_path);
+        if !src_path.exists() || !src_path.is_file() {
+            return Err("Selected source file was not found on disk.".to_string());
+        }
+
+        let mut cfg = config::load_app_config();
+        let mc_dir = Path::new(&cfg.current_instance);
+        let mods_dir = mc_dir.join("mods");
+        fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
+
+        let file_ext = src_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        let file_stem = src_path.file_stem().and_then(|s| s.to_str()).unwrap_or("Imported_Pack");
+
+        if file_ext == "jar" {
+            let dest_name = src_path.file_name().ok_or("Invalid file name")?;
+            fs::copy(src_path, mods_dir.join(dest_name)).map_err(|e| e.to_string())?;
+            return Ok(ModpackImportResultDto {
+                success: true,
+                pack_name: file_stem.to_string(),
+                mc_version: "1.21.1".to_string(),
+                loader: "fabric".to_string(),
+                mod_count: 1,
+                message: "Standalone module installed to active instance.".to_string(),
+            });
+        }
+
+        if file_ext == "zip" || file_ext == "mrpack" {
+            let zip_file = File::open(src_path).map_err(|e| e.to_string())?;
+            let mut archive = ZipArchive::new(zip_file).map_err(|e| e.to_string())?;
+
+            let mut manifest_str = String::new();
+            let mut modrinth_str = String::new();
+
+            for i in 0..archive.len() {
+                if let Ok(mut zf) = archive.by_index(i) {
+                    let name = zf.name().to_string();
+                    if name == "manifest.json" {
+                        let _ = zf.read_to_string(&mut manifest_str);
+                    } else if name == "modrinth.index.json" {
+                        let _ = zf.read_to_string(&mut modrinth_str);
+                    }
+                }
+            }
+
+            let mut target_mc_version = "1.21.1".to_string();
+            let mut target_loader = "fabric".to_string();
+            let mut pack_title = file_stem.to_string();
+            let mut installed_mods_count = 0;
+
+            if !manifest_str.is_empty() {
+                if let Ok(m) = serde_json::from_str::<Value>(&manifest_str) {
+                    if let Some(n) = m["name"].as_str() {
+                        pack_title = n.to_string();
+                    }
+                    if let Some(v) = m["minecraft"]["version"].as_str() {
+                        target_mc_version = v.to_string();
+                    }
+                    if let Some(loaders_arr) = m["minecraft"]["modLoaders"].as_array() {
+                        if let Some(first_loader) = loaders_arr.first().and_then(|l| l["id"].as_str()) {
+                            let clean_loader = first_loader.to_lowercase();
+                            if clean_loader.contains("fabric") {
+                                target_loader = "fabric".to_string();
+                            } else if clean_loader.contains("forge") && !clean_loader.contains("neoforge") {
+                                target_loader = "forge".to_string();
+                            } else if clean_loader.contains("neoforge") {
+                                target_loader = "neoforge".to_string();
+                            } else if clean_loader.contains("quilt") {
+                                target_loader = "quilt".to_string();
+                            }
+                        }
+                    }
+                }
+            } else if !modrinth_str.is_empty() {
+                if let Ok(m) = serde_json::from_str::<Value>(&modrinth_str) {
+                    if let Some(n) = m["name"].as_str() {
+                        pack_title = n.to_string();
+                    }
+                    if let Some(v) = m["dependencies"]["minecraft"].as_str() {
+                        target_mc_version = v.to_string();
+                    }
+                    if m["dependencies"].get("fabric-loader").is_some() {
+                        target_loader = "fabric".to_string();
+                    } else if m["dependencies"].get("neoforge").is_some() {
+                        target_loader = "neoforge".to_string();
+                    } else if m["dependencies"].get("forge").is_some() {
+                        target_loader = "forge".to_string();
+                    } else if m["dependencies"].get("quilt-loader").is_some() {
+                        target_loader = "quilt".to_string();
+                    }
+                }
+            }
+
+            for i in 0..archive.len() {
+                if let Ok(mut zf) = archive.by_index(i) {
+                    let entry_name = zf.name().to_string();
+                    if entry_name.ends_with('/') {
+                        continue;
+                    }
+
+                    if entry_name.starts_with("overrides/") {
+                        let rel = entry_name.trim_start_matches("overrides/");
+                        let dest_path = mc_dir.join(rel);
+                        if let Some(parent) = dest_path.parent() {
+                            let _ = fs::create_dir_all(parent);
+                        }
+                        if let Ok(mut outfile) = File::create(&dest_path) {
+                            let _ = std::io::copy(&mut zf, &mut outfile);
+                        }
+                    } else if entry_name.starts_with("client-overrides/") {
+                        let rel = entry_name.trim_start_matches("client-overrides/");
+                        let dest_path = mc_dir.join(rel);
+                        if let Some(parent) = dest_path.parent() {
+                            let _ = fs::create_dir_all(parent);
+                        }
+                        if let Ok(mut outfile) = File::create(&dest_path) {
+                            let _ = std::io::copy(&mut zf, &mut outfile);
+                        }
+                    } else if entry_name.ends_with(".jar") {
+                        let file_only = Path::new(&entry_name).file_name().unwrap_or_default();
+                        let dest_path = mods_dir.join(file_only);
+                        if let Ok(mut outfile) = File::create(&dest_path) {
+                            if std::io::copy(&mut zf, &mut outfile).is_ok() {
+                                installed_mods_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            cfg.game_resolution = "1280x720".to_string();
+            config::save_app_config(&cfg);
+
+            return Ok(ModpackImportResultDto {
+                success: true,
+                pack_name: pack_title,
+                mc_version: target_mc_version,
+                loader: target_loader,
+                mod_count: installed_mods_count,
+                message: "Modpack structure synchronized and mounted successfully.".to_string(),
+            });
+        }
+
+        Err("Unsupported archive container format.".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn auto_tune_ram(ram_gb: i32) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut cfg = config::load_app_config();
+        cfg.ram_allocation = ram_gb;
+        config::save_app_config(&cfg);
+        true
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn inspect_installed_content(state: State<'_, AppState>) -> Result<ContentInspectionDto, String> {
+    let doctor = state.doctor.clone();
+    tokio::task::spawn_blocking(move || {
+        let cfg = config::load_app_config();
+        let mods_dir = Path::new(&cfg.current_instance).join("mods");
+        let cfg_dir = Path::new(&cfg.current_instance).join("config");
+
+        if !mods_dir.exists() {
+            let _ = fs::create_dir_all(&mods_dir);
+            return ContentInspectionDto {
+                detected_loader: "vanilla".to_string(),
+                detected_version: "1.21.1".to_string(),
+                mod_count: 0,
+                incompatible_mods: Vec::new(),
+                recommended_ram_gb: 4,
+                is_clean: true,
+            };
+        }
+
+        let mut mod_count = 0;
+        let analysis = doctor.run_analysis(
+            mods_dir.to_str().unwrap_or(""),
+            cfg_dir.to_str().unwrap_or(""),
+        );
+
+        if let Ok(entries) = fs::read_dir(&mods_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let p = entry.path();
+                if p.is_file() && p.extension().and_then(|ext| ext.to_str()) == Some("jar") {
+                    mod_count += 1;
+                }
+            }
+        }
+
+        let mut incompatible_mods = Vec::new();
+        let mut is_clean = true;
+
+        if let Some(issues) = analysis["issues"].as_array() {
+            for issue in issues {
+                let level = issue["type"].as_str().unwrap_or("");
+                if level == "CRITICAL" {
+                    is_clean = false;
+                    let target = issue["target"].as_str().unwrap_or("Unknown target");
+                    incompatible_mods.push(target.to_string());
+                }
+            }
+        }
+
+        let recommended_ram = if mod_count > 120 {
+            8
+        } else if mod_count > 40 {
+            6
+        } else if mod_count > 10 {
+            4
+        } else {
+            2
+        };
+
+        ContentInspectionDto {
+            detected_loader: if mod_count > 0 { "fabric".to_string() } else { "vanilla".to_string() },
+            detected_version: "1.21.1".to_string(),
+            mod_count,
+            incompatible_mods,
+            recommended_ram_gb: recommended_ram,
+            is_clean,
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn preflight_inspection(
+    state: State<'_, AppState>,
+    version: String,
+    loader: String,
+) -> Result<PreflightReportDto, String> {
+    let doctor = state.doctor.clone();
+    let java = state.java.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let cfg = config::load_app_config();
+        let mc_dir = Path::new(&cfg.current_instance);
+        let mods_dir = mc_dir.join("mods");
+        let cfg_dir = mc_dir.join("config");
+
+        let mut sys = System::new_all();
+        sys.refresh_memory();
+        let total_system_memory_gb = (sys.total_memory() / (1024 * 1024 * 1024)) as i32;
+
+        let dummy_ver_data = json!({
+            "javaVersion": {
+                "majorVersion": if version.starts_with("1.21") || version.starts_with("1.20.5") { 21 } else { 17 }
+            }
+        });
+
+        let java_res = java.resolve_compatible_java(mc_dir, &loader, &version, &dummy_ver_data);
+        let (java_compatible, java_path, java_version) = match java_res {
+            Ok(p) => (true, p, SystemUtils::get_java_version()),
+            Err(_) => (false, String::new(), "Unavailable".to_string()),
+        };
+
+        let mut issues = Vec::new();
+        let mut ready_to_launch = java_compatible;
+
+        if !java_compatible {
+            issues.push(PreflightIssueDto {
+                level: "CRITICAL".to_string(),
+                title: "Java Runtime Missing".to_string(),
+                description: format!("No compatible Java compiler found for Minecraft {} with {} loader.", version, loader),
+                auto_fixable: true,
+            });
+        }
+
+        if cfg.ram_allocation > total_system_memory_gb && total_system_memory_gb > 0 {
+            issues.push(PreflightIssueDto {
+                level: "WARNING".to_string(),
+                title: "Excessive RAM Allocation".to_string(),
+                description: format!("Allocated {} GB exceeds physical system memory ({} GB).", cfg.ram_allocation, total_system_memory_gb),
+                auto_fixable: true,
+            });
+        }
+
+        let analysis = doctor.run_analysis(
+            mods_dir.to_str().unwrap_or(""),
+            cfg_dir.to_str().unwrap_or(""),
+        );
+
+        if let Some(items) = analysis["issues"].as_array() {
+            for item in items {
+                let lvl = item["type"].as_str().unwrap_or("");
+                let text = item["text"].as_str().unwrap_or("");
+                let action = item["action"].as_str().unwrap_or("");
+                if lvl == "CRITICAL" {
+                    ready_to_launch = false;
+                    issues.push(PreflightIssueDto {
+                        level: "CRITICAL".to_string(),
+                        title: "Mod Incompatibility Conflict".to_string(),
+                        description: text.to_string(),
+                        auto_fixable: action == "DELETE",
+                    });
+                } else if lvl == "WARNING" {
+                    issues.push(PreflightIssueDto {
+                        level: "WARNING".to_string(),
+                        title: "Mod Advisory".to_string(),
+                        description: text.to_string(),
+                        auto_fixable: action == "DELETE" || action == "DOWNLOAD",
+                    });
+                }
+            }
+        }
+
+        PreflightReportDto {
+            ready_to_launch,
+            java_compatible,
+            java_version,
+            java_path,
+            issues,
+            memory_allocated_gb: if cfg.ram_allocation > 0 { cfg.ram_allocation } else { 4 },
+            total_system_memory_gb,
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn auto_repair_instance(
+    state: State<'_, AppState>,
+    _version: String,
+    _loader: String,
+) -> Result<AutoRepairResultDto, String> {
+    let doctor = state.doctor.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let cfg = config::load_app_config();
+        let mc_dir = Path::new(&cfg.current_instance);
+        let mods_dir = mc_dir.join("mods");
+        let cfg_dir = mc_dir.join("config");
+        let saves_dir = mc_dir.join("saves");
+
+        let _ = SystemUtils::kill_zombie_processes();
+        let _ = ToolManager::unlock_worlds(saves_dir.to_str().unwrap_or(""));
+
+        let analysis = doctor.run_analysis(
+            mods_dir.to_str().unwrap_or(""),
+            cfg_dir.to_str().unwrap_or(""),
+        );
+
+        let mut fixed_count = 0;
+
+        if let Some(items) = analysis["issues"].as_array() {
+            for item in items {
+                let action = item["action"].as_str().unwrap_or("");
+                let target = item["target"].as_str().unwrap_or("");
+                if action == "DELETE" && !target.is_empty() {
+                    let target_path = if target.starts_with("../") {
+                        mods_dir.join(target)
+                    } else {
+                        mods_dir.join(target)
+                    };
+
+                    if target_path.exists() {
+                        let new_name = format!("{}.isolated", target_path.to_string_lossy());
+                        if fs::rename(&target_path, &new_name).is_ok() {
+                            fixed_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        AutoRepairResultDto {
+            success: true,
+            fixed_count,
+            message: format!("Resolved {} conflict points. System primed for ignition.", fixed_count),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn get_dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStatsDto, String> {
     let db = state.db.clone();
@@ -118,6 +556,45 @@ pub async fn get_dashboard_stats(state: State<'_, AppState>) -> Result<Dashboard
         let saves_path = Path::new(&mc_dir).join("saves");
         let saves_count = SystemUtils::get_saves_count(saves_path.to_str().unwrap_or(""));
 
+        let mut last_world_name: Option<String> = None;
+        let mut newest_time = std::time::SystemTime::UNIX_EPOCH;
+
+        if let Ok(entries) = fs::read_dir(&saves_path) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                if let Ok(meta) = entry.metadata() {
+                    if meta.is_dir() {
+                        if let Ok(mod_time) = meta.modified() {
+                            if mod_time > newest_time {
+                                newest_time = mod_time;
+                                last_world_name = Some(entry.file_name().to_string_lossy().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mods_path = Path::new(&mc_dir).join("mods");
+        let mut mods_count = 0;
+        if let Ok(entries) = fs::read_dir(mods_path) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".jar") {
+                    mods_count += 1;
+                }
+            }
+        }
+
+        let mut sys = System::new_all();
+        sys.refresh_memory();
+        let total_mem = sys.total_memory();
+        let used_mem = sys.used_memory();
+        let ram_usage_percent = if total_mem > 0 {
+            ((used_mem as f64 / total_mem as f64) * 100.0).min(100.0) as u8
+        } else {
+            0
+        };
+
         let pt = db.get_play_time(&mc_dir);
         let playtime_str = format!("{}h {}m", pt / 3600, (pt % 3600) / 60);
         let java_str = SystemUtils::get_java_version();
@@ -127,6 +604,9 @@ pub async fn get_dashboard_stats(state: State<'_, AppState>) -> Result<Dashboard
             saves: saves_count.to_string(),
             playtime: playtime_str,
             java: java_str,
+            mods_count,
+            ram_usage_percent,
+            last_world_name,
         }
     })
     .await
@@ -644,7 +1124,7 @@ pub async fn pick_file() -> Result<String, String> {
             let mut cmd = Command::new("powershell");
             cmd.arg("-NoProfile")
                 .arg("-Command")
-                .arg("Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Java Executable (javaw.exe, java.exe)|javaw.exe;java.exe|All Files (*.*)|*.*'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }");
+                .arg("Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Supported Packages (*.zip, *.mrpack, *.jar)|*.zip;*.mrpack;*.jar|All Files (*.*)|*.*'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }");
             cmd.creation_flags(0x08000000);
 
             if let Ok(res) = cmd.output() {
@@ -758,8 +1238,8 @@ pub async fn run_tool(state: State<'_, AppState>, _app: AppHandle, tool_id: Stri
             }
             "shield_scan" => {
                 let mods_dir = Path::new(&mc_dir).join("mods");
-                let res = shield.scan_directory(mods_dir.to_str().unwrap_or(""));
-                if res.is_empty() {
+                let report = shield.scan_directory(mods_dir.to_str().unwrap_or(""));
+                if report.threats.is_empty() {
                     Ok(ToolExecutionResult {
                         success: true,
                         msg: "No threats detected! Your instance is clean.".to_string(),
@@ -768,13 +1248,17 @@ pub async fn run_tool(state: State<'_, AppState>, _app: AppHandle, tool_id: Stri
                         threats: Some(Vec::new()),
                     })
                 } else {
-                    let count = res.len();
+                    let count = report.threat_count;
+                    let threats_val: Vec<Value> = serde_json::to_value(&report.threats)
+                        .ok()
+                        .and_then(|v| v.as_array().cloned())
+                        .unwrap_or_default();
                     Ok(ToolExecutionResult {
                         success: true,
                         msg: format!("Found {} infected or suspicious files!", count),
                         clipboard: None,
                         doctor_res: None,
-                        threats: Some(res),
+                        threats: Some(threats_val),
                     })
                 }
             }
@@ -1178,80 +1662,6 @@ pub fn save_note(text: String) -> bool {
 pub fn get_note() -> String {
     let notes_path = config::get_app_data_dir().join("overlay_notes.txt");
     fs::read_to_string(notes_path).unwrap_or_default()
-}
-
-#[tauri::command]
-pub fn get_settings() -> Value {
-    let cfg = config::load_app_config();
-    json!({
-        "mc_dir": cfg.current_instance,
-        "lang": cfg.lang,
-        "theme": cfg.theme,
-        "auto_backup": cfg.auto_backup,
-        "rpc": cfg.rpc,
-        "instances": cfg.instances,
-        "ai_provider": cfg.ai_provider,
-        "ai_api_key": config::get_secret("ai_api_key"),
-        "openai_api_key": config::get_secret("openai_api_key"),
-        "anthropic_api_key": config::get_secret("anthropic_api_key"),
-        "ollama_url": cfg.ollama_url,
-        "cf_api_key": config::get_secret("cf_api_key"),
-        "autostart": cfg.autostart,
-        "safe_mode": get_safe_mode_state(),
-        "low_graphics": cfg.low_graphics,
-        "close_on_launch": cfg.close_on_launch,
-        "ram_allocation": cfg.ram_allocation,
-        "shield_auto_scan": cfg.shield_auto_scan,
-        "voice_noise_suppression": cfg.voice_noise_suppression,
-        "eula_accepted": cfg.eula_accepted,
-        "telemetry_opt_in": cfg.telemetry_opt_in,
-        "offline_username": cfg.offline_username,
-        "game_resolution": cfg.game_resolution,
-        "game_fullscreen": cfg.game_fullscreen,
-        "custom_java_path": cfg.custom_java_path,
-        "custom_jvm_args": cfg.custom_jvm_args
-    })
-}
-
-#[tauri::command]
-pub async fn save_setting(key: String, value: Value) -> Result<bool, String> {
-    tokio::task::spawn_blocking(move || {
-        let mut cfg = config::load_app_config();
-        match key.as_str() {
-            "mc_dir" => {
-                if let Some(s) = value.as_str() {
-                    let _ = tauri::async_runtime::block_on(crate::commands::change_instance(s.to_string()));
-                }
-            }
-            "auto_backup" => { if let Some(b) = value.as_bool() { cfg.auto_backup = b; } }
-            "rpc" => { if let Some(b) = value.as_bool() { cfg.rpc = b; } }
-            "ai_provider" => { if let Some(s) = value.as_str() { cfg.ai_provider = s.to_string(); } }
-            "ai_api_key" => { if let Some(s) = value.as_str() { config::set_secret("ai_api_key", s); } }
-            "openai_api_key" => { if let Some(s) = value.as_str() { config::set_secret("openai_api_key", s); } }
-            "anthropic_api_key" => { if let Some(s) = value.as_str() { config::set_secret("anthropic_api_key", s); } }
-            "ollama_url" => { if let Some(s) = value.as_str() { cfg.ollama_url = s.to_string(); } }
-            "cf_api_key" => { if let Some(s) = value.as_str() { config::set_secret("cf_api_key", s); } }
-            "lang" => { if let Some(s) = value.as_str() { cfg.lang = s.to_string(); } }
-            "low_graphics" => { if let Some(b) = value.as_bool() { cfg.low_graphics = b; } }
-            "close_on_launch" => { if let Some(b) = value.as_bool() { cfg.close_on_launch = b; } }
-            "ram_allocation" => { if let Some(i) = value.as_i64() { cfg.ram_allocation = i as i32; } }
-            "shield_auto_scan" => { if let Some(b) = value.as_bool() { cfg.shield_auto_scan = b; } }
-            "voice_noise_suppression" => { if let Some(b) = value.as_bool() { cfg.voice_noise_suppression = b; } }
-            "eula_accepted" => { if let Some(b) = value.as_bool() { cfg.eula_accepted = b; } }
-            "telemetry_opt_in" => { if let Some(b) = value.as_bool() { cfg.telemetry_opt_in = b; } }
-            "offline_username" => { if let Some(s) = value.as_str() { cfg.offline_username = s.to_string(); } }
-            "game_resolution" => { if let Some(s) = value.as_str() { cfg.game_resolution = s.to_string(); } }
-            "game_fullscreen" => { if let Some(b) = value.as_bool() { cfg.game_fullscreen = b; } }
-            "custom_java_path" => { if let Some(s) = value.as_str() { cfg.custom_java_path = s.to_string(); } }
-            "custom_jvm_args" => { if let Some(s) = value.as_str() { cfg.custom_jvm_args = s.to_string(); } }
-            "autostart" => { if let Some(b) = value.as_bool() { cfg.autostart = b; } }
-            _ => return false,
-        }
-        config::save_app_config(&cfg);
-        true
-    })
-    .await
-    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

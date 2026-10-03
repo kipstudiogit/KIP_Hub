@@ -1,337 +1,347 @@
 <template>
-  <div class="h-full overflow-y-auto custom-scroll pr-2 pb-10">
-    <div class="mb-8 shrink-0 stagger-1">
-      <h2 class="text-3xl font-extrabold mb-1">{{ t('Network & Identity') }}</h2>
-      <p class="text-white/50 text-sm">{{ t('Inspect servers, manage panels, and view 3D skins.') }}</p>
-    </div>
-
-    <div class="kip-card p-8 mb-6 relative overflow-hidden flex flex-col group transition-colors duration-500 stagger-1" :class="voiceState.isConnected ? 'border-emerald-500/30 shadow-[0_0_40px_rgba(16,185,129,0.15)]' : 'border-white/5 hover:border-emerald-500/30 hover:shadow-[0_0_30px_rgba(16,185,129,0.1)]'">
-      <div class="absolute -right-20 -top-20 w-64 h-64 bg-emerald-500/10 blur-[100px] rounded-full pointer-events-none group-hover:bg-emerald-500/20 transition-all duration-700"></div>
-
-      <div class="flex justify-between items-center mb-6 relative z-10">
-        <h3 class="text-xl font-bold flex items-center gap-3 transition-colors" :class="voiceState.isConnected ? 'text-emerald-400' : 'text-white'">
-          <div class="p-2 rounded-xl border transition-colors" :class="voiceState.isConnected ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-white/5 border-white/10'">
-            <Mic class="w-5 h-5 transition-colors" :class="voiceState.isConnected ? 'animate-pulse text-emerald-400' : 'text-white/50'" />
-          </div>
-          K.I.P. Connect
-        </h3>
-        <div v-if="voiceState.isConnected" class="flex items-center gap-3">
-          <div class="flex items-center gap-2 bg-black/40 border border-emerald-500/20 px-4 py-2 rounded-xl">
-            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)] animate-pulse"></span>
-            <span class="text-xs font-mono font-bold text-white tracking-widest">{{ voiceState.channelId }}</span>
-          </div>
-          <button @click="toggleVoiceSettings" class="kip-btn-ghost p-2 text-emerald-400/70 hover:text-emerald-400 border-emerald-500/20 hover:border-emerald-500/50 hover:bg-emerald-500/10" title="Voice Settings">
-            <Settings class="w-4 h-4" />
-          </button>
-        </div>
+  <div class="h-full flex flex-col overflow-hidden select-none relative">
+    <div class="flex justify-between items-center mb-6 shrink-0 z-10">
+      <div>
+        <h2 class="text-3xl font-black uppercase tracking-tight text-white flex items-center gap-3">
+          {{ t('Network & Identity') }}
+        </h2>
+        <p class="text-white/40 text-xs font-mono tracking-wider mt-0.5">High-Speed Relay, Server Radar & 3D Identity Lab</p>
       </div>
 
-      <div class="relative z-10">
-        <div v-if="!voiceState.isConnected" class="flex flex-col gap-5 max-w-3xl">
-          <p class="text-sm text-white/50 leading-relaxed font-medium">
-            {{ t('Create or join a voice room instantly. Type a name or generate a random one to share with friends!') }}
-          </p>
+      <div class="flex p-1 bg-black/40 rounded-2xl border border-white/10 backdrop-blur-xl">
+        <button @click="activeSubTab = 'voice'" class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center gap-2" :class="activeSubTab === 'voice' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.2)]' : 'text-white/40 hover:text-white'">
+          <Mic class="w-3.5 h-3.5" /> Voice Studio
+        </button>
+        <button @click="activeSubTab = 'radar'" class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center gap-2" :class="activeSubTab === 'radar' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_20px_rgba(99,102,241,0.2)]' : 'text-white/40 hover:text-white'">
+          <Activity class="w-3.5 h-3.5" /> Radar & Tunnel
+        </button>
+        <button @click="activeSubTab = 'remote'" class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center gap-2" :class="activeSubTab === 'remote' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.2)]' : 'text-white/40 hover:text-white'">
+          <ServerCog class="w-3.5 h-3.5" /> Cloud Decks
+        </button>
+        <button @click="activeSubTab = 'skin'" class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center gap-2" :class="activeSubTab === 'skin' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.2)]' : 'text-white/40 hover:text-white'">
+          <User class="w-3.5 h-3.5" /> 3D Skin Lab
+        </button>
+      </div>
+    </div>
 
-          <div class="flex gap-2 p-1 bg-black/40 rounded-xl border border-white/5 w-fit">
-            <button @click="networkMode = 'global'" class="px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2" :class="networkMode === 'global' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-white/50 hover:text-white'">
-              <Globe class="w-3.5 h-3.5" /> Global Cloud (Internet)
-            </button>
-            <button @click="networkMode = 'lan'" class="px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2" :class="networkMode === 'lan' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'text-white/50 hover:text-white'">
-              <Radio class="w-3.5 h-3.5" /> Local Network (LAN / Direct)
-            </button>
-          </div>
+    <div class="flex-1 overflow-y-auto custom-scroll pr-2 pb-6 min-h-0 z-10">
+      <div v-show="activeSubTab === 'voice'" class="flex flex-col gap-6">
+        <div class="kip-card p-8 relative overflow-hidden flex flex-col border" :class="voiceState.isConnected ? 'border-emerald-500/30 bg-emerald-950/10 shadow-[0_0_40px_rgba(16,185,129,0.15)]' : 'border-white/5'">
+          <div class="absolute -right-20 -top-20 w-72 h-72 bg-emerald-500/10 blur-[100px] rounded-full pointer-events-none"></div>
 
-          <div class="flex gap-3">
-            <div class="relative flex-1">
-              <Hash class="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 w-4 h-4" />
-              <input v-model="connectChannel" @keyup.enter="handleJoinVoice" type="text" :placeholder="networkMode === 'global' ? t('Room key (e.g. survival)') : t('Host IP:Port or Room key (e.g. 192.168.1.5:8765)')" class="kip-input pl-11 pr-12">
-              <button @click="connectChannel = generateRandomRoom()" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-white/40 hover:text-emerald-400 transition rounded-lg hover:bg-white/5" :title="t('Generate Random Room')">
-                <Dices class="w-4 h-4" />
+          <div class="flex justify-between items-center mb-6 relative z-10">
+            <div class="flex items-center gap-3">
+              <div class="p-3 rounded-2xl border" :class="voiceState.isConnected ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : 'bg-white/5 border-white/10 text-white/40'">
+                <Mic class="w-6 h-6" :class="voiceState.isConnected ? 'animate-pulse' : ''" />
+              </div>
+              <div>
+                <h3 class="text-xl font-black text-white uppercase tracking-wider">K.I.P. Connect Studio</h3>
+                <span class="text-[9px] font-mono text-white/40 uppercase tracking-widest">Low-Latency W3C Mesh • Formant Noise Canceller Active</span>
+              </div>
+            </div>
+
+            <div v-if="voiceState.isConnected" class="flex items-center gap-3">
+              <div class="flex items-center gap-2 bg-black/60 border border-emerald-500/30 px-4 py-2 rounded-xl font-mono text-xs text-emerald-400 font-bold">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>ROOM: {{ voiceState.channelId }}</span>
+              </div>
+              <button @click="toggleVoiceSettings" class="kip-btn-ghost p-2.5 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10">
+                <Settings class="w-4 h-4" />
               </button>
             </div>
-            <button @click="handleJoinVoice" class="kip-btn-primary px-8 py-3 bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)]">
-              <PhoneCall class="w-4 h-4 fill-current" /> {{ connectChannel ? t('Join Room') : t('Quick Start') }}
-            </button>
           </div>
 
-          <div v-if="networkMode === 'lan'" class="text-[11px] font-mono text-white/40 flex items-center gap-2">
-            <span>Your local signaling engine:</span>
-            <span class="text-indigo-400 bg-white/5 px-2 py-0.5 rounded border border-white/5 cursor-pointer" @click="copyLocalHost">ws://localhost:8765</span>
-          </div>
-        </div>
+          <div v-if="!voiceState.isConnected" class="flex flex-col gap-5 max-w-2xl relative z-10">
+            <p class="text-xs text-white/60 leading-relaxed font-medium">
+              Join or create an encrypted voice room. Connect across the internet with any room key or directly over local LAN.
+            </p>
 
-        <div v-else class="flex flex-col gap-5">
-          <transition name="fade">
-            <div v-if="voiceState.showSettings" class="bg-black/60 border border-white/10 rounded-2xl p-6 mb-2 flex flex-col gap-5 shadow-inner">
-              <div class="grid grid-cols-2 gap-6">
-                <div>
-                  <label class="text-[10px] font-bold text-white/50 uppercase tracking-wider mb-2 block">Microphone</label>
-                  <select v-model="voiceState.selectedInputId" @change="setAudioInput(voiceState.selectedInputId)" class="kip-input py-2.5 text-xs appearance-none cursor-pointer">
-                    <option value="default">Default Device</option>
-                    <option v-for="d in voiceState.inputDevices" :key="d.deviceId" :value="d.deviceId">{{ d.label || 'Microphone ' + d.deviceId.substring(0,4) }}</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="text-[10px] font-bold text-white/50 uppercase tracking-wider mb-2 block">Output / Speakers</label>
-                  <select v-model="voiceState.selectedOutputId" @change="setAudioOutput(voiceState.selectedOutputId)" class="kip-input py-2.5 text-xs appearance-none cursor-pointer">
-                    <option value="default">Default Device</option>
-                    <option v-for="d in voiceState.outputDevices" :key="d.deviceId" :value="d.deviceId">{{ d.label || 'Speaker ' + d.deviceId.substring(0,4) }}</option>
-                  </select>
-                </div>
-              </div>
-              <div class="pt-5 border-t border-white/10 flex items-center justify-between gap-5">
-                <button @click="toggleMicTest" class="px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition border" :class="voiceState.isTestingMic ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border-red-500/30' : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/30'">
-                  {{ voiceState.isTestingMic ? 'Stop Test' : 'Test Mic' }}
+            <div class="flex gap-2 p-1 bg-black/40 rounded-xl border border-white/10 w-fit">
+              <button @click="networkMode = 'global'" class="px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2" :class="networkMode === 'global' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-white/40 hover:text-white'">
+                <Globe class="w-3.5 h-3.5" /> Global Cloud (Internet)
+              </button>
+              <button @click="networkMode = 'lan'" class="px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2" :class="networkMode === 'lan' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'text-white/40 hover:text-white'">
+                <Radio class="w-3.5 h-3.5" /> Local Network (LAN)
+              </button>
+            </div>
+
+            <div class="flex gap-3">
+              <div class="relative flex-1">
+                <Hash class="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 w-4 h-4" />
+                <input v-model="connectChannel" @keyup.enter="handleJoinVoice" type="text" :placeholder="networkMode === 'global' ? t('Enter room key (e.g. survival)') : t('Local Host or IP:Port (e.g. 192.168.1.5:8765)')" class="kip-input pl-11 pr-12 font-mono">
+                <button @click="connectChannel = generateRandomRoom()" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-white/40 hover:text-emerald-400 transition" :title="t('Generate key')">
+                  <Dices class="w-4 h-4" />
                 </button>
-                <div class="flex-1 h-2.5 bg-black/60 rounded-full overflow-hidden border border-white/5 relative shadow-inner">
-                  <div class="absolute top-0 left-0 h-full bg-emerald-400 transition-all duration-75 shadow-[0_0_10px_rgba(52,211,153,0.8)]" :style="{ width: voiceState.testMicVolume + '%' }"></div>
-                </div>
               </div>
-            </div>
-          </transition>
-
-          <div class="grid grid-cols-3 gap-4">
-            <div class="bg-black/40 border rounded-2xl p-4 flex flex-col gap-3 transition-colors duration-300" :class="voiceState.localSpeaking ? 'border-emerald-500/50 bg-emerald-500/10 shadow-[inset_0_0_20px_rgba(16,185,129,0.1)]' : 'border-white/5'">
-              <div class="flex items-center gap-3">
-                <img :src="getAvatarUrl(state.settings.ms_name || 'Guest')" class="w-10 h-10 rounded-xl object-cover bg-black/60 p-0.5 transition-colors duration-300" :class="voiceState.localSpeaking ? 'border-2 border-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.6)]' : 'border border-white/10'">
-                <div class="flex-1 min-w-0">
-                  <h4 class="font-bold text-sm truncate transition-colors duration-300" :class="voiceState.localSpeaking ? 'text-emerald-400' : 'text-white'">{{ state.settings.ms_name || 'Guest' }} (You)</h4>
-                  <div class="flex items-center gap-1 mt-1.5 h-3">
-                    <template v-if="voiceState.localSpeaking">
-                      <span class="w-1 bg-emerald-400 rounded-full animate-[bounce_0.8s_ease-in-out_infinite]" style="height: 100%;"></span>
-                      <span class="w-1 bg-emerald-400 rounded-full animate-[bounce_0.9s_ease-in-out_infinite_0.1s]" style="height: 60%;"></span>
-                      <span class="w-1 bg-emerald-400 rounded-full animate-[bounce_0.7s_ease-in-out_infinite_0.2s]" style="height: 80%;"></span>
-                      <span class="w-1 bg-emerald-400 rounded-full animate-[bounce_1.0s_ease-in-out_infinite_0.3s]" style="height: 40%;"></span>
-                    </template>
-                    <template v-else>
-                      <span class="w-6 h-0.5 bg-white/20 rounded-full"></span>
-                    </template>
-                  </div>
-                </div>
-                <div class="flex flex-col gap-1.5 shrink-0">
-                  <button @click="toggleMute" class="p-1.5 rounded-lg transition" :class="voiceState.isMuted ? 'bg-red-500/20 text-red-400' : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'">
-                    <MicOff v-if="voiceState.isMuted" class="w-3.5 h-3.5" />
-                    <Mic v-else class="w-3.5 h-3.5" />
-                  </button>
-                  <button @click="toggleDeafen" class="p-1.5 rounded-lg transition" :class="voiceState.isDeafened ? 'bg-red-500/20 text-red-400' : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'">
-                    <Headphones class="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div v-for="p in voiceState.participants" :key="p.id" class="bg-black/40 border rounded-2xl p-4 flex flex-col gap-3 transition-colors duration-300" :class="p.speaking ? 'border-emerald-500/50 bg-emerald-500/10 shadow-[inset_0_0_20px_rgba(16,185,129,0.1)]' : 'border-white/5'">
-              <div class="flex items-center gap-3">
-                <img :src="getAvatarUrl(p.name)" class="w-10 h-10 rounded-xl object-cover bg-black/60 p-0.5 transition-colors duration-300" :class="p.speaking ? 'border-2 border-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.6)]' : 'border border-white/10'">
-                <div class="flex-1 min-w-0">
-                  <h4 class="font-bold text-sm truncate transition-colors duration-300" :class="p.speaking ? 'text-emerald-400' : 'text-white'">{{ p.name }}</h4>
-                  <div class="flex items-center gap-1 mt-1.5 h-3">
-                    <template v-if="p.speaking">
-                      <span class="w-1 bg-emerald-400 rounded-full animate-[bounce_0.8s_ease-in-out_infinite]" style="height: 80%;"></span>
-                      <span class="w-1 bg-emerald-400 rounded-full animate-[bounce_0.6s_ease-in-out_infinite_0.1s]" style="height: 100%;"></span>
-                      <span class="w-1 bg-emerald-400 rounded-full animate-[bounce_0.9s_ease-in-out_infinite_0.2s]" style="height: 60%;"></span>
-                      <span class="w-1 bg-emerald-400 rounded-full animate-[bounce_0.7s_ease-in-out_infinite_0.3s]" style="height: 90%;"></span>
-                    </template>
-                    <template v-else>
-                      <span class="w-6 h-0.5 bg-white/20 rounded-full"></span>
-                    </template>
-                  </div>
-                </div>
-                <div class="flex gap-1.5 shrink-0 bg-black/40 px-2 py-1.5 rounded-lg border border-white/5">
-                  <MicOff v-if="p.muted" class="w-3.5 h-3.5 text-red-400" />
-                  <Headphones v-if="p.deafened" class="w-3.5 h-3.5 text-amber-400" />
-                  <Mic v-if="!p.muted && !p.deafened" class="w-3.5 h-3.5 text-white/20" :class="p.speaking ? 'text-emerald-400' : ''" />
-                </div>
-              </div>
+              <button @click="handleJoinVoice" class="kip-btn-primary px-8 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-wider shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+                <PhoneCall class="w-4 h-4 fill-current" /> Connect
+              </button>
             </div>
           </div>
 
-          <div class="flex justify-end pt-3">
-            <button @click="leaveVoiceChannel" class="kip-btn-danger px-6 py-2.5">
-              <PhoneOff class="w-4 h-4" /> Disconnect
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="grid grid-cols-2 gap-6">
-      <div class="kip-card p-8 relative overflow-hidden flex flex-col group hover:border-indigo-500/30 transition-colors duration-500 stagger-2">
-        <div class="absolute -right-20 -top-20 w-64 h-64 bg-indigo-500/10 blur-[100px] rounded-full pointer-events-none group-hover:bg-indigo-500/20 transition-all duration-500"></div>
-
-        <h3 class="text-xl font-bold mb-6 flex items-center gap-3 relative z-10">
-          <div class="p-2 bg-indigo-500/10 rounded-xl border border-indigo-500/20"><Activity class="text-indigo-400 w-5 h-5" /></div>
-          {{ t('Server Ping') }}
-        </h3>
-
-        <div class="flex gap-3 mb-6 relative z-10">
-          <input v-model="netIp" @keyup.enter="pingServer" type="text" placeholder="mc.hypixel.net" class="kip-input">
-          <button @click="pingServer" :disabled="isPinging" class="kip-btn-primary px-6 min-w-[120px]">
-            <Loader v-if="isPinging" class="w-5 h-5 animate-spin" />
-            <span v-else>{{ t('Ping') }}</span>
-          </button>
-        </div>
-
-        <div v-if="pingResult" class="bg-black/40 p-5 rounded-2xl border border-white/5 mt-auto relative z-10 shadow-inner">
-          <div class="flex gap-5 items-center">
-            <img :src="pingResult.icon || fallbackServerIcon" class="w-16 h-16 rounded-xl bg-black/60 p-1 object-contain border border-white/5 shadow-lg">
-            <div class="flex-1 min-w-0">
-              <div class="flex justify-between items-center mb-2">
-                <span class="font-bold text-emerald-400 flex items-center gap-2 text-sm uppercase tracking-wider">
-                  <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse"></span> {{ t('Online') }}
-                </span>
-                <span class="text-xs font-mono px-2 py-1 rounded-lg border" :class="getPingColorClass(pingResult.ping || 0)">
-                  {{ pingResult.ping ?? 0 }} ms
-                </span>
-              </div>
-              <p class="text-xs text-white/60 truncate mb-3" v-html="sanitizeHTML(pingResult.motd || '')"></p>
-
-              <div class="w-full">
-                <div class="flex justify-between text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1.5">
-                  <span>{{ t('Players') }}</span>
-                  <span>{{ pingResult.players?.split('/')[0] || 0 }} / {{ pingResult.players?.split('/')[1] || 0 }}</span>
-                </div>
-                <div class="w-full h-1.5 bg-black/60 border border-white/5 rounded-full overflow-hidden shadow-inner">
-                  <div class="h-full bg-indigo-500 rounded-full shadow-[0_0_10px_rgba(99,102,241,0.8)]" :style="{ width: calculatePlayerPercentage(pingResult.players || '0/0') + '%' }"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="kip-card p-0 relative overflow-hidden flex flex-col group hover:border-purple-500/30 transition-colors duration-500 min-h-[350px] stagger-2">
-        <div class="absolute inset-0 bg-gradient-to-t from-purple-900/20 via-transparent to-transparent pointer-events-none z-0"></div>
-
-        <div class="p-8 pb-0 relative z-20 flex justify-between items-start pointer-events-none">
-          <h3 class="text-xl font-bold flex items-center gap-3">
-            <div class="p-2 bg-purple-500/10 rounded-xl border border-purple-500/20 pointer-events-auto"><User class="text-purple-400 w-5 h-5" /></div>
-            {{ t('Interactive 3D Skin') }}
-          </h3>
-        </div>
-
-        <div class="px-8 mt-4 relative z-20 flex gap-3">
-          <input v-model="netNick" @keyup.enter="loadSkin3D" type="text" placeholder="Notch" class="kip-input bg-black/60 backdrop-blur shadow-xl">
-          <button @click="loadSkin3D" :disabled="isSkinLoading" class="kip-btn-primary bg-purple-500 hover:bg-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.3)] px-6 min-w-[120px]">
-            <Loader v-if="isSkinLoading" class="w-5 h-5 animate-spin" />
-            <span v-else>{{ t('Render') }}</span>
-          </button>
-        </div>
-
-        <div ref="skinContainer" class="absolute inset-0 flex justify-center items-center cursor-move z-10 pt-20">
-          <div v-show="!hasSkinLoaded" class="text-white/30 flex flex-col items-center gap-3 absolute pointer-events-none">
-            <Box class="w-12 h-12 opacity-30" />
-            <span class="text-sm font-medium tracking-wide">{{ t('Enter nickname to render') }}</span>
-          </div>
-          <canvas ref="skinCanvas" class="drop-shadow-[0_20px_30px_rgba(0,0,0,0.8)] transition-opacity duration-500" :class="hasSkinLoaded ? 'opacity-100' : 'opacity-0'"></canvas>
-        </div>
-
-        <div v-if="hasSkinLoaded" class="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex gap-2 bg-black/60 backdrop-blur-md p-1.5 rounded-2xl border border-white/10 shadow-2xl">
-          <button @click="setAnimation('idle')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition" :class="skinAnim === 'idle' ? 'bg-purple-500 text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]' : 'text-white/50 hover:text-white hover:bg-white/5'">Idle</button>
-          <button @click="setAnimation('walk')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition" :class="skinAnim === 'walk' ? 'bg-purple-500 text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]' : 'text-white/50 hover:text-white hover:bg-white/5'">Walk</button>
-          <button @click="setAnimation('run')" class="px-4 py-1.5 rounded-xl text-xs font-bold transition" :class="skinAnim === 'run' ? 'bg-purple-500 text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]' : 'text-white/50 hover:text-white hover:bg-white/5'">Run</button>
-        </div>
-      </div>
-
-      <div class="kip-card p-8 relative overflow-hidden hover:border-amber-500/30 transition-colors duration-500 group col-span-2 stagger-3">
-        <div class="absolute -right-20 -bottom-20 w-64 h-64 bg-amber-500/10 blur-[100px] rounded-full pointer-events-none group-hover:bg-amber-500/20 transition-all duration-500"></div>
-
-        <div class="flex justify-between items-start mb-6 relative z-10">
-          <div>
-            <h3 class="text-xl font-bold mb-1 flex items-center gap-3">
-              <div class="p-2 bg-amber-500/10 rounded-xl border border-amber-500/20"><Radio class="text-amber-400 w-5 h-5" /></div>
-              {{ t('LAN Tunnel') }}
-            </h3>
-            <p class="text-white/50 text-sm">{{ t('Play with friends over internet without Hamachi.') }}</p>
-          </div>
-        </div>
-        <div class="flex gap-4 relative z-10 mt-auto">
-          <input v-model="tunnelPort" type="text" :placeholder="t('Local Port (e.g. 25565)')" class="kip-input font-mono">
-          <button @click="startTunnel" class="kip-btn-primary px-8 bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.3)]">
-            <Play class="w-4 h-4 fill-current" /> {{ t('Start Tunnel') }}
-          </button>
-          <button @click="stopTunnel" class="kip-btn-danger px-8 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/20 shadow-none">
-            <Square class="w-4 h-4 fill-current" /> {{ t('Stop') }}
-          </button>
-        </div>
-      </div>
-
-      <div class="kip-card p-8 relative overflow-hidden hover:border-blue-500/30 transition-colors duration-500 group col-span-2 stagger-3">
-        <div class="absolute -left-20 -bottom-20 w-64 h-64 bg-blue-500/10 blur-[100px] rounded-full pointer-events-none group-hover:bg-blue-500/20 transition-all duration-500"></div>
-
-        <div class="flex justify-between items-start mb-6 relative z-10">
-          <div>
-            <h3 class="text-xl font-bold mb-1 flex items-center gap-3">
-              <div class="p-2 bg-blue-500/10 rounded-xl border border-blue-500/20"><ServerCog class="text-blue-400 w-5 h-5" /></div>
-              {{ t('Pterodactyl Panel') }}
-            </h3>
-            <p class="text-white/50 text-sm">{{ t('Manage your remote server directly from the launcher.') }}</p>
-          </div>
-        </div>
-
-        <div class="flex gap-3 mb-5 relative z-10">
-          <input v-model="ptero.url" type="text" :placeholder="t('Panel URL (e.g. https://panel.example.com)')" class="kip-input flex-1">
-          <input v-model="ptero.key" type="password" :placeholder="t('Client API Key')" class="kip-input w-1/3 font-mono">
-          <button @click="pteroConnect" :disabled="ptero.loading" class="kip-btn-primary bg-blue-500 hover:bg-blue-400 px-6 min-w-[120px] shadow-[0_0_15px_rgba(59,130,246,0.3)]">
-            <Loader v-if="ptero.loading" class="w-5 h-5 animate-spin" />
-            <span v-else class="flex items-center gap-2"><LinkIcon class="w-4 h-4" /> {{ t('Connect') }}</span>
-          </button>
-        </div>
-
-        <div v-if="ptero.servers.length > 0" class="mb-4 relative custom-dropdown z-20">
-          <select v-model="ptero.serverId" @change="updateSelectedPteroServer" class="kip-input py-2.5 text-xs appearance-none cursor-pointer border-blue-500/30">
-            <option v-for="s in ptero.servers" :key="s.id" :value="s.id">{{ s.name }} ({{ s.state }})</option>
-          </select>
-        </div>
-
-        <div v-if="ptero.serverId" class="flex items-center justify-between bg-black/40 p-4 px-6 rounded-xl border border-white/5 relative z-10 shadow-inner">
-          <div class="flex items-center gap-3">
-            <span class="w-2.5 h-2.5 rounded-full" :class="ptero.status === 'running' ? 'bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-amber-400'"></span>
-            <span class="text-xs font-bold uppercase tracking-widest text-white/70">{{ ptero.status }}</span>
-          </div>
-          <div class="flex gap-2">
-            <button @click="pteroAction('start')" class="kip-btn-ghost px-5 py-2 text-sm text-emerald-400 hover:text-white border-emerald-500/20 hover:bg-emerald-500/20">{{ t('Start') }}</button>
-            <button @click="pteroAction('restart')" class="kip-btn-ghost px-5 py-2 text-sm text-amber-400 hover:text-white border-amber-500/20 hover:bg-amber-500/20">{{ t('Restart') }}</button>
-            <button @click="pteroAction('kill')" class="kip-btn-ghost px-5 py-2 text-sm text-red-400 hover:text-white border-red-500/20 hover:bg-red-500/20">{{ t('Kill') }}</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="kip-card p-8 relative overflow-hidden border-cyan-500/20 group col-span-2 stagger-3">
-        <div class="absolute -right-20 -top-20 w-96 h-96 bg-cyan-500/10 blur-[100px] rounded-full pointer-events-none group-hover:bg-cyan-500/20 transition-all duration-700"></div>
-
-        <div class="flex justify-between items-start mb-6 relative z-10">
-          <div>
-            <h3 class="text-xl font-bold mb-1 flex items-center gap-3">
-              <div class="p-2 bg-cyan-500/10 rounded-xl border border-cyan-500/20"><Container class="text-cyan-400 w-5 h-5" /></div>
-              {{ t('1-Click Docker Server') }}
-            </h3>
-            <p class="text-white/50 text-sm">{{ t('Deploy isolated local servers via Docker.') }}</p>
-          </div>
-        </div>
-
-        <div class="flex gap-4 relative z-10">
-          <div class="relative w-1/4 custom-dropdown">
-            <div @click="dockerDropdownOpen = !dockerDropdownOpen" class="bg-black/40 border rounded-xl px-5 py-3.5 flex justify-between items-center cursor-pointer transition hover:bg-black/60" :class="dockerDropdownOpen ? 'border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'border-white/10'">
-              <span class="font-bold text-sm uppercase tracking-wider">{{ dockerCore }}</span>
-              <ChevronDown class="w-4 h-4 text-white/50 transition-transform" :class="{'rotate-180': dockerDropdownOpen}" />
-            </div>
+          <div v-else class="flex flex-col gap-6 relative z-10">
             <transition name="fade">
-              <div v-if="dockerDropdownOpen" class="absolute top-full left-0 w-full mt-2 bg-[#121214] border border-white/10 rounded-xl shadow-2xl overflow-hidden py-2 z-50">
-                <div v-for="c in (['paper', 'fabric', 'forge', 'vanilla'] as const)" :key="c" @click="dockerCore = c; dockerDropdownOpen = false" class="px-5 py-3 hover:bg-white/5 cursor-pointer transition font-bold text-sm uppercase tracking-wider" :class="dockerCore === c ? 'text-cyan-400' : 'text-white/70'">
-                  {{ c }}
+              <div v-if="voiceState.showSettings" class="bg-black/60 border border-white/10 rounded-2xl p-6 flex flex-col gap-5 shadow-2xl">
+                <div class="grid grid-cols-2 gap-6">
+                  <div>
+                    <label class="text-[10px] font-black text-white/40 uppercase tracking-widest mb-2 block">Audio Input Device</label>
+                    <select v-model="voiceState.selectedInputId" @change="setAudioInput(voiceState.selectedInputId)" class="kip-input py-2.5 text-xs">
+                      <option value="default">Default Recording Device</option>
+                      <option v-for="d in voiceState.inputDevices" :key="d.deviceId" :value="d.deviceId">{{ d.label || 'Microphone ' + d.deviceId.substring(0,4) }}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-black text-white/40 uppercase tracking-widest mb-2 block">Audio Output Device</label>
+                    <select v-model="voiceState.selectedOutputId" @change="setAudioOutput(voiceState.selectedOutputId)" class="kip-input py-2.5 text-xs">
+                      <option value="default">Default Playback Device</option>
+                      <option v-for="d in voiceState.outputDevices" :key="d.deviceId" :value="d.deviceId">{{ d.label || 'Speaker ' + d.deviceId.substring(0,4) }}</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="pt-4 border-t border-white/5 flex items-center justify-between gap-5">
+                  <button @click="toggleMicTest" class="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition border" :class="voiceState.isTestingMic ? 'bg-red-500/10 text-red-400 border-red-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'">
+                    {{ voiceState.isTestingMic ? 'Stop Test' : 'Test Loopback' }}
+                  </button>
+                  <div class="flex-1 h-2 bg-black/60 rounded-full overflow-hidden border border-white/5 relative">
+                    <div class="absolute top-0 left-0 h-full bg-emerald-400 transition-all duration-75 shadow-[0_0_10px_rgba(52,211,153,0.8)]" :style="{ width: voiceState.testMicVolume + '%' }"></div>
+                  </div>
                 </div>
               </div>
             </transition>
+
+            <div class="grid grid-cols-4 gap-4">
+              <div class="bg-black/50 border rounded-2xl p-4 flex flex-col justify-between transition-all duration-300" :class="voiceState.localSpeaking ? 'border-emerald-500/60 bg-emerald-500/10 shadow-[0_0_20px_rgba(16,185,129,0.2)]' : 'border-white/5'">
+                <div class="flex items-center gap-3">
+                  <img :src="getAvatarUrl(state.settings.ms_name || 'Guest')" class="w-10 h-10 rounded-xl object-cover border border-white/10">
+                  <div class="flex-1 min-w-0">
+                    <h4 class="font-black text-sm text-white truncate">{{ state.settings.ms_name || 'Guest' }} (You)</h4>
+                    <span class="text-[9px] font-mono text-emerald-400 font-bold uppercase">{{ voiceState.localSpeaking ? 'Transmitting' : 'Idle' }}</span>
+                  </div>
+                </div>
+
+                <div class="flex items-center justify-between mt-4 pt-3 border-t border-white/5">
+                  <div class="flex gap-1.5">
+                    <button @click="toggleMute" class="p-2 rounded-lg transition" :class="voiceState.isMuted ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/60 hover:text-white'">
+                      <MicOff v-if="voiceState.isMuted" class="w-3.5 h-3.5" />
+                      <Mic v-else class="w-3.5 h-3.5" />
+                    </button>
+                    <button @click="toggleDeafen" class="p-2 rounded-lg transition" :class="voiceState.isDeafened ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-white/60 hover:text-white'">
+                      <Headphones class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <span class="text-[9px] font-mono text-white/30 uppercase">Local Peer</span>
+                </div>
+              </div>
+
+              <div v-for="p in voiceState.participants" :key="p.id" class="bg-black/50 border rounded-2xl p-4 flex flex-col justify-between transition-all duration-300" :class="p.speaking ? 'border-emerald-500/60 bg-emerald-500/10 shadow-[0_0_20px_rgba(16,185,129,0.2)]' : 'border-white/5'">
+                <div class="flex items-center gap-3">
+                  <img :src="getAvatarUrl(p.name)" class="w-10 h-10 rounded-xl object-cover border border-white/10">
+                  <div class="flex-1 min-w-0">
+                    <h4 class="font-black text-sm text-white truncate">{{ p.name }}</h4>
+                    <span class="text-[9px] font-mono font-bold uppercase" :class="p.speaking ? 'text-emerald-400' : 'text-white/40'">{{ p.speaking ? 'Speaking' : 'Listening' }}</span>
+                  </div>
+                </div>
+
+                <div class="flex items-center justify-between mt-4 pt-3 border-t border-white/5">
+                  <div class="flex gap-1.5">
+                    <MicOff v-if="p.muted" class="w-3.5 h-3.5 text-red-400" />
+                    <Headphones v-if="p.deafened" class="w-3.5 h-3.5 text-amber-400" />
+                    <span v-if="!p.muted && !p.deafened" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                  </div>
+                  <span class="text-[9px] font-mono text-white/30 uppercase">Remote</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex justify-end pt-2">
+              <button @click="leaveVoiceChannel" class="kip-btn-danger px-6 py-2.5 text-xs uppercase font-black tracking-wider">
+                <PhoneOff class="w-4 h-4" /> Disconnect Studio
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="activeSubTab === 'radar'" class="grid grid-cols-2 gap-6">
+        <div class="kip-card p-8 flex flex-col border border-white/5 hover:border-indigo-500/30 transition">
+          <div class="flex justify-between items-start mb-6">
+            <div>
+              <h3 class="text-xl font-black uppercase text-white flex items-center gap-2">
+                <Activity class="w-5 h-5 text-indigo-400" /> Server Radar
+              </h3>
+              <p class="text-xs text-white/40 mt-1">Real-time latency check and MOTD diagnostic</p>
+            </div>
           </div>
 
-          <input v-model="dockerVer" type="text" :placeholder="t('Ver (e.g. 1.20.4)')" class="kip-input w-1/4">
-          <input v-model="dockerPort" type="text" :placeholder="t('Port')" class="kip-input w-1/4 font-mono">
+          <div class="flex gap-3 mb-6">
+            <input v-model="netIp" @keyup.enter="pingServer" type="text" placeholder="mc.hypixel.net" class="kip-input font-mono">
+            <button @click="pingServer" :disabled="isPinging" class="kip-btn-primary px-6 min-w-[110px] text-xs font-black uppercase">
+              <Loader v-if="isPinging" class="w-4 h-4 animate-spin" />
+              <span v-else>Inspect</span>
+            </button>
+          </div>
 
-          <button @click="deployDocker" :disabled="isDockerDeploying" class="kip-btn-primary w-1/4 bg-cyan-500 hover:bg-cyan-400 text-black shadow-[0_0_15px_rgba(6,182,212,0.4)]">
-            <Loader v-if="isDockerDeploying" class="w-5 h-5 animate-spin" />
-            <template v-else><Play class="w-5 h-5 fill-current" /> {{ t('Deploy') }}</template>
-          </button>
+          <div v-if="pingResult" class="bg-black/50 p-5 rounded-2xl border border-white/5 flex flex-col gap-4 mt-auto">
+            <div class="flex items-center gap-4">
+              <img :src="pingResult.icon || fallbackServerIcon" class="w-14 h-14 rounded-xl bg-black/60 p-1 object-contain border border-white/10">
+              <div class="flex-1 min-w-0">
+                <div class="flex justify-between items-center mb-1">
+                  <span class="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Online
+                  </span>
+                  <span class="text-xs font-mono font-bold px-2 py-0.5 rounded border" :class="getPingColorClass(pingResult.ping || 0)">
+                    {{ pingResult.ping ?? 0 }} ms
+                  </span>
+                </div>
+                <p class="text-xs text-white/60 truncate font-mono" v-html="sanitizeHTML(pingResult.motd || '')"></p>
+              </div>
+            </div>
+
+            <div>
+              <div class="flex justify-between text-[10px] font-mono uppercase text-white/40 mb-1.5 font-bold">
+                <span>Players Online</span>
+                <span>{{ pingResult.players || '0/0' }}</span>
+              </div>
+              <div class="w-full h-1.5 bg-black/60 rounded-full overflow-hidden border border-white/5">
+                <div class="h-full bg-indigo-500 rounded-full shadow-[0_0_10px_rgba(99,102,241,0.8)]" :style="{ width: calculatePlayerPercentage(pingResult.players || '0/0') + '%' }"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kip-card p-8 flex flex-col border border-white/5 hover:border-amber-500/30 transition">
+          <div class="flex justify-between items-start mb-6">
+            <div>
+              <h3 class="text-xl font-black uppercase text-white flex items-center gap-2">
+                <Radio class="w-5 h-5 text-amber-400" /> LAN Reverse Tunnel
+              </h3>
+              <p class="text-xs text-white/40 mt-1">Expose singleplayer LAN game to friends via encrypted TCP bridge</p>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-4">
+            <div class="flex gap-3">
+              <input v-model="tunnelPort" type="text" placeholder="25565" class="kip-input font-mono w-1/3 text-center">
+              <button @click="startTunnel" class="kip-btn-primary flex-1 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs shadow-[0_0_20px_rgba(245,158,11,0.3)]">
+                <Play class="w-4 h-4 fill-current" /> Open Tunnel
+              </button>
+              <button @click="stopTunnel" class="kip-btn-danger px-5 bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/30">
+                <Square class="w-4 h-4 fill-current" />
+              </button>
+            </div>
+
+            <div v-if="activeTunnelEndpoint" class="bg-black/60 p-5 rounded-2xl border border-amber-500/30 flex flex-col gap-3 shadow-inner">
+              <span class="text-[9px] font-mono uppercase text-amber-400 font-bold tracking-widest">Live Tunnel Public Address:</span>
+              <div class="flex items-center justify-between bg-black/80 px-4 py-3 rounded-xl border border-white/10">
+                <span class="font-mono text-sm text-white font-bold select-all">{{ activeTunnelEndpoint }}</span>
+                <button @click="copyTunnelAddress" class="kip-btn-ghost px-3 py-1.5 text-xs text-amber-400 border-amber-500/30 hover:bg-amber-500/10">
+                  <Copy class="w-3.5 h-3.5" /> Copy IP
+                </button>
+              </div>
+              <p class="text-[10px] text-white/50 leading-relaxed font-mono">
+                Give this exact address to your friends. They can paste it directly into Minecraft Multiplayer Direct Connect!
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="activeSubTab === 'remote'" class="grid grid-cols-2 gap-6">
+        <div class="kip-card p-8 flex flex-col border border-white/5 hover:border-blue-500/30 transition">
+          <h3 class="text-xl font-black uppercase text-white flex items-center gap-2 mb-2">
+            <ServerCog class="w-5 h-5 text-blue-400" /> Pterodactyl Panel Link
+          </h3>
+          <p class="text-xs text-white/40 mb-6">Manage remote dedicated gaming servers via official client API</p>
+
+          <div class="flex flex-col gap-4">
+            <input v-model="ptero.url" type="text" placeholder="https://panel.example.com" class="kip-input">
+            <div class="flex gap-3">
+              <input v-model="ptero.key" type="password" placeholder="Client API Key" class="kip-input font-mono flex-1">
+              <button @click="pteroConnect" :disabled="ptero.loading" class="kip-btn-primary px-6 bg-blue-500 hover:bg-blue-400 text-white font-black uppercase text-xs shadow-[0_0_20px_rgba(59,130,246,0.3)]">
+                <Loader v-if="ptero.loading" class="w-4 h-4 animate-spin" />
+                <span v-else>Link</span>
+              </button>
+            </div>
+
+            <div v-if="ptero.servers.length > 0" class="flex flex-col gap-3 mt-4 pt-4 border-t border-white/5">
+              <select v-model="ptero.serverId" @change="updateSelectedPteroServer" class="kip-input text-xs">
+                <option v-for="s in ptero.servers" :key="s.id" :value="s.id">{{ s.name }} ({{ s.state }})</option>
+              </select>
+
+              <div class="flex items-center justify-between bg-black/60 p-4 rounded-xl border border-white/5">
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full" :class="ptero.status === 'running' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'"></span>
+                  <span class="text-xs font-mono font-bold uppercase text-white/80">{{ ptero.status }}</span>
+                </div>
+                <div class="flex gap-2">
+                  <button @click="pteroAction('start')" class="kip-btn-ghost px-4 py-1.5 text-xs text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10">Start</button>
+                  <button @click="pteroAction('restart')" class="kip-btn-ghost px-4 py-1.5 text-xs text-amber-400 border-amber-500/20 hover:bg-amber-500/10">Restart</button>
+                  <button @click="pteroAction('kill')" class="kip-btn-ghost px-4 py-1.5 text-xs text-red-400 border-red-500/20 hover:bg-red-500/10">Kill</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kip-card p-8 flex flex-col border border-white/5 hover:border-cyan-500/30 transition">
+          <h3 class="text-xl font-black uppercase text-white flex items-center gap-2 mb-2">
+            <Container class="w-5 h-5 text-cyan-400" /> 1-Click Docker Instance
+          </h3>
+          <p class="text-xs text-white/40 mb-6">Deploy isolated sandboxed containerized server on your local machine</p>
+
+          <div class="flex flex-col gap-4">
+            <div class="grid grid-cols-3 gap-3">
+              <select v-model="dockerCore" class="kip-input text-xs font-bold uppercase">
+                <option value="paper">PaperMC</option>
+                <option value="fabric">Fabric</option>
+                <option value="forge">Forge</option>
+                <option value="vanilla">Vanilla</option>
+              </select>
+              <input v-model="dockerVer" type="text" placeholder="1.20.4" class="kip-input font-mono text-center text-xs">
+              <input v-model="dockerPort" type="text" placeholder="25565" class="kip-input font-mono text-center text-xs">
+            </div>
+
+            <button @click="deployDocker" :disabled="isDockerDeploying" class="kip-btn-primary py-3.5 bg-cyan-500 hover:bg-cyan-400 text-black font-black uppercase text-xs shadow-[0_0_20px_rgba(6,182,212,0.3)]">
+              <Loader v-if="isDockerDeploying" class="w-4 h-4 animate-spin" />
+              <span v-else>Deploy Docker Stack</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="activeSubTab === 'skin'" class="kip-card p-8 flex flex-col border border-white/5 hover:border-purple-500/30 transition relative overflow-hidden min-h-[500px]">
+        <div class="absolute -top-32 -right-32 w-96 h-96 bg-purple-500/10 blur-[120px] rounded-full pointer-events-none"></div>
+
+        <div class="flex justify-between items-center mb-6 relative z-20">
+          <div>
+            <h3 class="text-xl font-black uppercase text-white flex items-center gap-2">
+              <User class="w-5 h-5 text-purple-400" /> Holographic 3D Skin Lab
+            </h3>
+            <p class="text-xs text-white/40 mt-1">Real-time WebGL Minecraft player model renderer</p>
+          </div>
+
+          <div class="flex gap-3">
+            <input v-model="netNick" @keyup.enter="loadSkin3D" type="text" placeholder="Notch" class="kip-input py-2 text-xs font-mono w-48">
+            <button @click="loadSkin3D" :disabled="isSkinLoading" class="kip-btn-primary px-6 bg-purple-500 hover:bg-purple-400 text-white font-black text-xs uppercase shadow-[0_0_20px_rgba(168,85,247,0.3)]">
+              <Loader v-if="isSkinLoading" class="w-4 h-4 animate-spin" />
+              <span v-else>Project</span>
+            </button>
+          </div>
+        </div>
+
+        <div ref="skinContainer" class="flex-1 w-full flex justify-center items-center relative z-10 min-h-[350px]">
+          <div v-show="!hasSkinLoaded" class="text-white/30 flex flex-col items-center gap-3">
+            <Box class="w-12 h-12 opacity-30" />
+            <span class="text-xs font-mono">Enter Minecraft nickname above to generate hologram</span>
+          </div>
+          <canvas ref="skinCanvas" class="drop-shadow-[0_20px_40px_rgba(0,0,0,0.9)] transition-opacity duration-500" :class="hasSkinLoaded ? 'opacity-100' : 'opacity-0'"></canvas>
+        </div>
+
+        <div v-if="hasSkinLoaded" class="flex justify-center gap-2 mt-4 relative z-20">
+          <button @click="setAnimation('idle')" class="px-5 py-2 rounded-xl text-xs font-bold transition" :class="skinAnim === 'idle' ? 'bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-white/40 hover:text-white bg-white/5'">Idle</button>
+          <button @click="setAnimation('walk')" class="px-5 py-2 rounded-xl text-xs font-bold transition" :class="skinAnim === 'walk' ? 'bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-white/40 hover:text-white bg-white/5'">Walk</button>
+          <button @click="setAnimation('run')" class="px-5 py-2 rounded-xl text-xs font-bold transition" :class="skinAnim === 'run' ? 'bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'text-white/40 hover:text-white bg-white/5'">Run</button>
         </div>
       </div>
     </div>
@@ -348,9 +358,7 @@ import {
   Play,
   Square,
   ServerCog,
-  Link as LinkIcon,
   Container,
-  ChevronDown,
   Loader,
   Mic,
   MicOff,
@@ -361,6 +369,7 @@ import {
   Dices,
   PhoneCall,
   Globe,
+  Copy,
 } from 'lucide-vue-next'
 import { SkinViewer, WalkingAnimation, RunningAnimation, IdleAnimation } from 'skinview3d'
 import {
@@ -387,6 +396,10 @@ import {
   type GenericActionResult,
 } from '@/bridge'
 
+type SubTabKey = 'voice' | 'radar' | 'remote' | 'skin'
+type SkinAnimationType = 'idle' | 'walk' | 'run'
+type DockerCoreType = 'paper' | 'fabric' | 'forge' | 'vanilla'
+
 interface PteroServer {
   id: string
   name: string
@@ -402,25 +415,16 @@ interface PteroState {
   loading: boolean
 }
 
-type SkinAnimationType = 'idle' | 'walk' | 'run'
-type DockerCoreType = 'paper' | 'fabric' | 'forge' | 'vanilla'
+const activeSubTab = ref<SubTabKey>('voice')
+const networkMode = ref<'global' | 'lan'>('global')
+const connectChannel = ref<string>('')
 
 const netIp = ref<string>('')
 const isPinging = ref<boolean>(false)
 const pingResult = ref<ServerPingResultDto | null>(null)
-const networkMode = ref<'global' | 'lan'>('global')
 
-const netNick = ref<string>('')
-const isSkinLoading = ref<boolean>(false)
-const hasSkinLoaded = ref<boolean>(false)
-const skinContainer = ref<HTMLElement | null>(null)
-const skinCanvas = ref<HTMLCanvasElement | null>(null)
-const skinAnim = ref<SkinAnimationType>('idle')
-let skinViewerInstance: SkinViewer | null = null
-let resizeObserver: ResizeObserver | null = null
-
-const tunnelPort = ref<string>('')
-const connectChannel = ref<string>('')
+const tunnelPort = ref<string>('25565')
+const activeTunnelEndpoint = ref<string>('')
 
 const ptero = ref<PteroState>({
   url: '',
@@ -432,11 +436,19 @@ const ptero = ref<PteroState>({
 })
 let pteroInterval: ReturnType<typeof setInterval> | null = null
 
-const dockerDropdownOpen = ref<boolean>(false)
 const dockerCore = ref<DockerCoreType>('paper')
-const dockerVer = ref<string>('')
-const dockerPort = ref<string>('')
+const dockerVer = ref<string>('1.20.4')
+const dockerPort = ref<string>('25565')
 const isDockerDeploying = ref<boolean>(false)
+
+const netNick = ref<string>('')
+const isSkinLoading = ref<boolean>(false)
+const hasSkinLoaded = ref<boolean>(false)
+const skinContainer = ref<HTMLElement | null>(null)
+const skinCanvas = ref<HTMLCanvasElement | null>(null)
+const skinAnim = ref<SkinAnimationType>('idle')
+let skinViewerInstance: SkinViewer | null = null
+let resizeObserver: ResizeObserver | null = null
 
 const fallbackServerIcon =
   'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="%236366f1" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>'
@@ -459,14 +471,6 @@ const calculatePlayerPercentage = (playersStr: string): number => {
 
 const generateRandomRoom = (): string => {
   return 'kip-' + Math.random().toString(36).substring(2, 6)
-}
-
-const copyLocalHost = async (): Promise<void> => {
-  try {
-    await navigator.clipboard.writeText('127.0.0.1:8765')
-    showToast(t('Copied'), 'Local signaling host copied to clipboard', 'success')
-  } catch {
-  }
 }
 
 const handleJoinVoice = (): void => {
@@ -544,62 +548,10 @@ const pingServer = async (): Promise<void> => {
   isPinging.value = false
 }
 
-const loadSkin3D = async (): Promise<void> => {
-  const nickname = netNick.value.trim()
-  if (!nickname || !skinContainer.value || !skinCanvas.value) return
-  isSkinLoading.value = true
-
-  const width = skinContainer.value.clientWidth || 350
-  const height = skinContainer.value.clientHeight || 400
-  const url = `https://mc-heads.net/skin/${encodeURIComponent(nickname)}`
-
-  try {
-    if (!skinViewerInstance) {
-      skinViewerInstance = new SkinViewer({
-        canvas: skinCanvas.value,
-        width,
-        height,
-        skin: url,
-      })
-      skinViewerInstance.fov = 70
-      skinViewerInstance.zoom = 0.9
-      skinViewerInstance.autoRotate = true
-      skinViewerInstance.autoRotateSpeed = 0.5
-
-      if (skinViewerInstance.controls) {
-        skinViewerInstance.controls.enableRotate = true
-        skinViewerInstance.controls.enableZoom = true
-        skinViewerInstance.controls.enablePan = false
-      }
-      skinViewerInstance.animation = new IdleAnimation()
-      skinAnim.value = 'idle'
-    } else {
-      await skinViewerInstance.loadSkin(url)
-    }
-    hasSkinLoaded.value = true
-  } catch {
-    showToast(t('Skin Error'), t('Failed to load skin for this player.'), 'danger')
-  } finally {
-    isSkinLoading.value = false
-  }
-}
-
-const setAnimation = (type: SkinAnimationType): void => {
-  if (!skinViewerInstance) return
-  skinAnim.value = type
-  if (type === 'walk') {
-    skinViewerInstance.animation = new WalkingAnimation()
-  } else if (type === 'run') {
-    skinViewerInstance.animation = new RunningAnimation()
-  } else {
-    skinViewerInstance.animation = new IdleAnimation()
-  }
-}
-
 const startTunnel = (): void => {
   const port = tunnelPort.value.trim()
   if (!port) return
-  showToast(t('Tunnel'), t('Starting tunnel...'), 'info')
+  showToast(t('Tunnel'), t('Starting reverse tunnel...'), 'info')
   try {
     bridge.startTunnel(port)
   } catch {
@@ -610,9 +562,19 @@ const startTunnel = (): void => {
 const stopTunnel = (): void => {
   try {
     bridge.stopTunnel()
+    activeTunnelEndpoint.value = ''
   } catch {
   }
   showToast(t('Tunnel'), t('Tunnel stopped.'), 'info')
+}
+
+const copyTunnelAddress = async (): Promise<void> => {
+  if (!activeTunnelEndpoint.value) return
+  try {
+    await navigator.clipboard.writeText(activeTunnelEndpoint.value)
+    showToast(t('Copied'), 'Server address copied to clipboard!', 'success')
+  } catch {
+  }
 }
 
 const pteroConnect = async (): Promise<void> => {
@@ -722,15 +684,66 @@ const deployDocker = async (): Promise<void> => {
   }
 }
 
-const closeDropdowns = (e: MouseEvent): void => {
-  const target = e.target as HTMLElement | null
-  if (!target || !target.closest('.custom-dropdown')) {
-    dockerDropdownOpen.value = false
+const loadSkin3D = async (): Promise<void> => {
+  const nickname = netNick.value.trim()
+  if (!nickname || !skinContainer.value || !skinCanvas.value) return
+  isSkinLoading.value = true
+
+  const width = skinContainer.value.clientWidth || 350
+  const height = skinContainer.value.clientHeight || 400
+  const url = `https://mc-heads.net/skin/${encodeURIComponent(nickname)}`
+
+  try {
+    if (!skinViewerInstance) {
+      skinViewerInstance = new SkinViewer({
+        canvas: skinCanvas.value,
+        width,
+        height,
+        skin: url,
+      })
+      skinViewerInstance.fov = 70
+      skinViewerInstance.zoom = 0.9
+      skinViewerInstance.autoRotate = true
+      skinViewerInstance.autoRotateSpeed = 0.5
+
+      if (skinViewerInstance.controls) {
+        skinViewerInstance.controls.enableRotate = true
+        skinViewerInstance.controls.enableZoom = true
+        skinViewerInstance.controls.enablePan = false
+      }
+      skinViewerInstance.animation = new IdleAnimation()
+      skinAnim.value = 'idle'
+    } else {
+      await skinViewerInstance.loadSkin(url)
+    }
+    hasSkinLoaded.value = true
+  } catch {
+    showToast(t('Skin Error'), t('Failed to load skin for this player.'), 'danger')
+  } finally {
+    isSkinLoading.value = false
+  }
+}
+
+const setAnimation = (type: SkinAnimationType): void => {
+  if (!skinViewerInstance) return
+  skinAnim.value = type
+  if (type === 'walk') {
+    skinViewerInstance.animation = new WalkingAnimation()
+  } else if (type === 'run') {
+    skinViewerInstance.animation = new RunningAnimation()
+  } else {
+    skinViewerInstance.animation = new IdleAnimation()
   }
 }
 
 onMounted(() => {
-  window.addEventListener('click', closeDropdowns)
+  if (window.__TAURI__?.event?.listen) {
+    window.__TAURI__.event.listen<string>('updateTunnelStatus', (e) => {
+      if (e.payload && !e.payload.includes('Error') && !e.payload.includes('NO_SSH')) {
+        activeTunnelEndpoint.value = e.payload
+      }
+    })
+  }
 
   resizeObserver = new ResizeObserver(() => {
     if (skinViewerInstance && skinContainer.value) {
@@ -746,7 +759,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('click', closeDropdowns)
   stopPteroPolling()
 
   if (resizeObserver) {
