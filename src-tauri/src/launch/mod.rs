@@ -63,18 +63,28 @@ impl ManifestMerger {
         if let Some(c_args) = child.get("arguments") {
             if let Some(c_jvm) = c_args.get("jvm").and_then(|j| j.as_array()) {
                 if let Some(p_jvm) = merged["arguments"]["jvm"].as_array_mut() {
+                    let mut combined_jvm = Vec::new();
                     for arg in c_jvm {
-                        p_jvm.push(arg.clone());
+                        combined_jvm.push(arg.clone());
                     }
+                    for arg in p_jvm.iter() {
+                        combined_jvm.push(arg.clone());
+                    }
+                    merged["arguments"]["jvm"] = json!(combined_jvm);
                 } else {
                     merged["arguments"]["jvm"] = json!(c_jvm);
                 }
             }
             if let Some(c_game) = c_args.get("game").and_then(|g| g.as_array()) {
                 if let Some(p_game) = merged["arguments"]["game"].as_array_mut() {
+                    let mut combined_game = Vec::new();
                     for arg in c_game {
-                        p_game.push(arg.clone());
+                        combined_game.push(arg.clone());
                     }
+                    for arg in p_game.iter() {
+                        combined_game.push(arg.clone());
+                    }
+                    merged["arguments"]["game"] = json!(combined_game);
                 } else {
                     merged["arguments"]["game"] = json!(c_game);
                 }

@@ -1,224 +1,3 @@
-<template>
-  <div class="flex flex-col h-full bg-[#050505] overflow-hidden relative" :class="[state.isBigPicture ? 'big-picture-mode' : '']">
-    <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden bg-[#050505] transition-opacity duration-700" :class="state.isOverlayActive ? 'opacity-0' : 'opacity-100'">
-      <div class="absolute -top-[10%] -left-[10%] w-[55vw] h-[55vw] bg-indigo-600/25 blur-[130px] rounded-full animate-blob mix-blend-screen"></div>
-      <div class="absolute top-[20%] -right-[10%] w-[45vw] h-[45vw] bg-purple-600/25 blur-[130px] rounded-full animate-blob animation-delay-2000 mix-blend-screen"></div>
-      <div class="absolute -bottom-[20%] left-[20%] w-[65vw] h-[65vw] bg-emerald-600/20 blur-[130px] rounded-full animate-blob animation-delay-4000 mix-blend-screen"></div>
-      <div class="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:60px_60px] [transform:perspective(1000px)_rotateX(60deg)_translateY(-100px)_scale(2.5)] opacity-40"></div>
-      <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_20%,#050505_95%)]"></div>
-    </div>
-
-    <transition name="fade" mode="out-in">
-      <div v-if="state.showBoot" class="fixed inset-0 bg-[#030305] z-[9999] flex flex-col items-center justify-center overflow-hidden">
-        <div class="absolute inset-0 bg-[linear-gradient(rgba(99,102,241,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(99,102,241,0.03)_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_60%_60%_at_50%_50%,#000_10%,transparent_100%)]"></div>
-        <div class="absolute top-[-10%] left-0 w-full h-[20%] bg-gradient-to-b from-transparent via-indigo-500/10 to-transparent blur-md animate-[pulse_4s_ease-in-out_infinite]"></div>
-        <div class="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-indigo-600/10 blur-[100px] rounded-full animate-pulse pointer-events-none"></div>
-        <div class="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-emerald-600/10 blur-[100px] rounded-full animate-pulse pointer-events-none" style="animation-delay: 1s;"></div>
-
-        <div class="relative z-10 flex flex-col items-center w-full max-w-lg">
-          <div class="relative w-36 h-36 mb-12 flex items-center justify-center">
-            <div class="absolute inset-0 border-t-2 border-b-2 border-indigo-500/50 rounded-full animate-[spin_3s_linear_infinite] shadow-[0_0_15px_rgba(99,102,241,0.5)]"></div>
-            <div class="absolute inset-2 border-r-2 border-l-2 border-emerald-500/50 rounded-full animate-[spin_4s_linear_infinite_reverse] shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div>
-            <div class="absolute inset-4 border-2 border-dashed border-purple-500/40 rounded-full animate-[spin_10s_linear_infinite]"></div>
-            <div class="absolute inset-8 border border-white/10 rounded-full animate-ping opacity-30" style="animation-duration: 2s;"></div>
-            <div class="absolute inset-0 bg-indigo-500/10 blur-xl rounded-full animate-pulse"></div>
-            <Hexagon class="text-white w-10 h-10 relative z-10 drop-shadow-[0_0_15px_rgba(255,255,255,0.8)]" />
-          </div>
-
-          <h1 class="text-5xl font-extrabold tracking-[0.3em] mb-4 uppercase flex items-center gap-2 drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
-            {{ state.appName }}<span class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-emerald-400">{{ state.appAccent }}</span>
-          </h1>
-          <p class="text-white/30 font-mono text-[10px] tracking-[0.4em] mb-12 uppercase border border-white/10 px-4 py-1.5 rounded-full bg-white/5 shadow-inner">
-            {{ t('Engine Version') }} {{ state.version || '1.5.8' }}
-          </p>
-
-          <div class="w-full flex flex-col gap-3 relative">
-            <div class="flex justify-between items-end px-2">
-              <span class="font-mono text-[10px] tracking-[0.2em] text-white/50 uppercase flex items-center gap-2">
-                <Activity class="w-3.5 h-3.5 text-indigo-400 animate-pulse" /> {{ t('System Status') }}
-              </span>
-              <span class="font-mono text-sm tracking-widest font-bold" :class="state.bootProgress >= 100 ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.8)]' : 'text-indigo-400 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)]'">
-                {{ Math.floor(state.bootProgress) }}%
-              </span>
-            </div>
-
-            <div class="w-full h-1.5 bg-black/50 border border-white/10 rounded-full overflow-hidden relative shadow-[inset_0_0_10px_rgba(0,0,0,0.8)]">
-              <div class="absolute top-0 left-0 h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500 transition-all duration-75 ease-linear" :style="{ width: state.bootProgress + '%' }">
-                <div class="absolute inset-0 bg-white/20" style="background-image: repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.2) 5px, rgba(0,0,0,0.2) 10px);"></div>
-              </div>
-            </div>
-
-            <div class="flex items-center justify-between mt-2 px-2">
-              <div class="flex items-center gap-2">
-                <Loader v-if="state.bootProgress < 100" class="w-3.5 h-3.5 text-indigo-400 animate-spin" />
-                <CheckCircle v-else class="w-3.5 h-3.5 text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-                <p class="font-mono text-[10px] tracking-[0.1em] uppercase transition-colors duration-300" :class="state.bootProgress >= 100 ? 'text-emerald-400 font-bold' : 'text-white/70'">
-                  {{ t(state.bootText) }}
-                </p>
-              </div>
-            </div>
-
-            <div class="h-24 mt-4 bg-black/40 border border-white/5 rounded-xl p-3 overflow-hidden relative shadow-inner flex flex-col justify-end">
-              <div class="absolute inset-0 bg-gradient-to-b from-[#030305] via-transparent to-transparent pointer-events-none z-10"></div>
-              <div class="font-mono text-[9px] text-emerald-400/60 tracking-wider flex flex-col gap-1">
-                <div v-for="(log, idx) in bootLogs" :key="idx" class="truncate" :class="{'text-white/90 font-bold drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]': idx === bootLogs.length - 1, 'opacity-40': idx < bootLogs.length - 2}">
-                  <span class="text-indigo-400/50">></span> {{ log }}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </transition>
-
-    <transition name="fade">
-      <div v-if="!state.showBoot && !state.settings.eula_accepted" class="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[99999] flex items-center justify-center p-10 cursor-default">
-        <div class="kip-card max-w-2xl w-full p-8 border-indigo-500/30 shadow-[0_0_50px_rgba(99,102,241,0.2)] relative overflow-hidden flex flex-col">
-          <div class="absolute -top-32 -left-32 w-64 h-64 bg-indigo-500/10 blur-[100px] rounded-full pointer-events-none"></div>
-          <h2 class="text-3xl font-extrabold mb-4 flex items-center gap-3 relative z-10"><ShieldCheck class="w-8 h-8 text-indigo-400" /> License Agreement</h2>
-          <div class="bg-black/40 border border-white/5 p-5 rounded-xl mb-6 h-64 overflow-y-auto custom-scroll text-sm text-white/70 leading-relaxed font-medium relative z-10 shadow-inner">
-            NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
-            <br><br>
-            This software downloads files directly from Mojang servers. A valid Minecraft license is required to play. Provided "AS IS" under the GNU General Public License v3.0 (GPL-3.0).
-            <br><br>
-            By clicking "I Accept", you agree to these terms and confirm you understand this is a third-party open-source manager licensed under GPL-3.0. Data such as crash logs may be sent to AI providers (Google/OpenAI/Anthropic) if you explicitly use the AI Support feature. Your Microsoft tokens are stored locally. No personal data is collected by K.I.P. Studio.
-          </div>
-          <button @click="acceptEula" class="kip-btn-primary w-full py-4 text-lg tracking-widest uppercase shadow-[0_0_20px_rgba(99,102,241,0.4)] relative z-10">I Accept</button>
-        </div>
-      </div>
-    </transition>
-
-    <div v-show="!state.isOverlayActive" class="titlebar flex justify-between items-center px-6 py-4 z-50 transition-colors duration-300 bg-black/60 border-b border-white/5 backdrop-blur-md relative" data-tauri-drag-region>
-      <div class="flex items-center gap-3">
-        <Hexagon class="text-indigo-500 w-5 h-5" />
-        <span class="font-bold tracking-[0.1em] text-sm uppercase">{{ state.appName }}<span class="text-indigo-400">{{ state.appAccent }}</span></span>
-      </div>
-      <div class="flex gap-4 titlebar-btn items-center">
-        <button @click="toggleBigPicture" class="text-white/50 hover:text-amber-400 transition" :title="t('Big Picture Mode')">
-          <Gamepad2 class="w-4 h-4" />
-        </button>
-        <div class="w-px h-4 bg-white/10 mx-1"></div>
-        <button @click="state.isNexusOpen = !state.isNexusOpen" class="text-white/50 hover:text-emerald-400 transition relative flex items-center">
-          <Users class="w-4 h-4" />
-          <span class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
-        </button>
-        <div class="w-px h-4 bg-white/10 mx-1"></div>
-        <button @click="windowMinimize" class="text-white/50 hover:text-indigo-400 transition"><Minus class="w-4 h-4" /></button>
-        <button @click="windowMaximize" class="text-white/50 hover:text-indigo-400 transition"><Square class="w-3.5 h-3.5" /></button>
-        <button @click="windowClose" class="text-white/50 hover:text-red-500 transition"><X class="w-4 h-4" /></button>
-      </div>
-    </div>
-
-    <div v-show="!state.isOverlayActive" class="flex flex-1 overflow-hidden relative z-10">
-      <div v-show="!state.isMiniMode" class="border-r border-white/5 flex flex-col py-6 gap-2 z-40 transition-all duration-300 bg-black/40 backdrop-blur-xl shrink-0" :class="isSidebarCollapsed ? 'w-20 px-3' : 'w-64 px-4'">
-        <div class="flex items-center justify-between mb-4 px-2" :class="isSidebarCollapsed ? 'justify-center' : ''">
-          <button @click="isSidebarCollapsed = !isSidebarCollapsed" class="text-white/40 hover:text-white transition">
-            <Menu v-if="isSidebarCollapsed" class="w-5 h-5" />
-            <AlignLeft v-else class="w-5 h-5" />
-          </button>
-        </div>
-
-        <div v-if="!isSidebarCollapsed" class="px-2 mb-4">
-          <select v-model="state.settings.mc_dir" @change="changeInstance" class="kip-input appearance-none cursor-pointer text-xs py-2 truncate" :title="state.settings.mc_dir">
-            <option v-for="inst in state.settings.instances" :key="inst" :value="inst">{{ formatInstanceName(inst) }}</option>
-          </select>
-        </div>
-
-        <div v-for="nav in state.navItems" :key="nav.id" @click="state.currentView = nav.id" class="flex items-center rounded-xl cursor-pointer transition-all duration-200" :class="[state.currentView === nav.id ? 'bg-indigo-500/10 text-indigo-400' : 'text-white/60 hover:bg-white/5 hover:text-white', isSidebarCollapsed ? 'p-3 justify-center' : 'px-4 py-3.5 gap-3']" :title="isSidebarCollapsed ? t(nav.label) : ''">
-          <component :is="getIcon(nav.icon)" class="w-5 h-5 shrink-0" />
-          <span v-if="!isSidebarCollapsed" class="font-medium text-sm">{{ t(nav.label) }}</span>
-        </div>
-
-        <div class="mt-auto"></div>
-
-        <div class="px-4 py-3 mx-2 mb-4 rounded-xl border transition-colors duration-300 flex items-center gap-3" :class="[state.isMcRunning ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-black/40 border-white/5', isSidebarCollapsed ? 'justify-center p-3' : '']" :title="isSidebarCollapsed ? t(state.mcStatusText) : ''">
-          <div class="w-2.5 h-2.5 rounded-full shrink-0" :class="state.isMcRunning ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse' : 'bg-white/30'"></div>
-          <span v-if="!isSidebarCollapsed" class="text-xs font-bold truncate" :class="state.isMcRunning ? 'text-emerald-400' : 'text-white/50'">{{ t(state.mcStatusText) }}</span>
-        </div>
-
-        <button v-if="hasUpdate" @click="performUpdate" :disabled="isUpdating" class="kip-btn-primary py-3" :class="isSidebarCollapsed ? 'p-3' : 'w-full mx-2'" :title="isSidebarCollapsed ? t('Update App') : ''">
-          <Loader v-if="isUpdating" class="w-4 h-4 animate-spin" />
-          <Download v-else class="w-4 h-4" />
-          <span v-if="!isSidebarCollapsed">{{ isUpdating ? t('Updating...') : t('Update App') }}</span>
-        </button>
-      </div>
-
-      <div class="flex-1 overflow-y-auto custom-scroll relative flex flex-col min-h-0 transition-all duration-500 p-10" :class="state.isBigPicture ? 'p-16 pb-48' : ''" id="main-content">
-        <transition name="fade" mode="out-in">
-          <component :is="currentViewComponent" />
-        </transition>
-      </div>
-
-      <transition name="slide">
-        <Nexus v-if="state.isNexusOpen" />
-      </transition>
-    </div>
-
-    <transition name="fade">
-      <div v-if="state.partyInvite" class="fixed top-8 left-1/2 -translate-x-1/2 z-[10000] kip-card p-5 border border-indigo-500/50 shadow-[0_0_50px_rgba(99,102,241,0.3)] flex items-center gap-6 animate-[bounce_2s_infinite]">
-        <div class="relative shrink-0">
-          <img :src="getAvatarUrl(state.partyInvite.senderName)" class="w-12 h-12 rounded-xl object-cover border-2 border-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.8)]">
-          <div class="absolute -bottom-2 -right-2 p-1 bg-black rounded-lg">
-            <Gamepad2 class="w-4 h-4 text-emerald-400 animate-pulse" />
-          </div>
-        </div>
-        <div class="flex-1">
-          <h4 class="font-extrabold text-white text-lg tracking-wider mb-0.5">K.I.P. Party Invite</h4>
-          <p class="text-xs text-white/70">From <span class="font-bold text-indigo-400">{{ state.partyInvite.senderName }}</span> • {{ state.partyInvite.mods.length }} mods</p>
-        </div>
-        <div class="flex gap-2 shrink-0 ml-4">
-          <button @click="acceptPartyInvite" class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold rounded-xl transition shadow-[0_0_15px_rgba(16,185,129,0.4)]">Accept</button>
-          <button @click="declinePartyInvite" class="px-5 py-2.5 bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white font-bold rounded-xl transition border border-red-500/30">Decline</button>
-        </div>
-      </div>
-    </transition>
-
-    <transition name="fade">
-      <div v-if="state.isBigPicture" class="fixed bottom-0 left-0 right-0 h-16 bg-black/80 backdrop-blur-2xl border-t border-white/10 z-[8000] flex items-center justify-between px-10 select-none pointer-events-none">
-        <div class="flex items-center gap-6">
-          <div class="flex items-center gap-2">
-            <span class="w-6 h-6 rounded-full bg-emerald-500 text-black font-black text-xs flex items-center justify-center shadow-[0_0_10px_rgba(16,185,129,0.5)]">A</span>
-            <span class="text-xs font-bold text-white/80 uppercase tracking-wider">{{ t('Select') }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="w-6 h-6 rounded-full bg-red-500 text-white font-black text-xs flex items-center justify-center shadow-[0_0_10px_rgba(239,68,68,0.5)]">B</span>
-            <span class="text-xs font-bold text-white/80 uppercase tracking-wider">{{ t('Back / Close') }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-0.5 rounded bg-white/20 text-white font-mono font-bold text-xs border border-white/20">LB / RB</span>
-            <span class="text-xs font-bold text-white/80 uppercase tracking-wider">{{ t('Switch Tab') }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="px-2 py-0.5 rounded bg-white/20 text-white font-mono font-bold text-xs border border-white/20">D-PAD</span>
-            <span class="text-xs font-bold text-white/80 uppercase tracking-wider">{{ t('Navigate') }}</span>
-          </div>
-        </div>
-        <div class="flex items-center gap-4 pointer-events-auto">
-          <button @click="toggleBigPicture" class="kip-btn-danger px-4 py-1.5 text-xs rounded-xl flex items-center gap-2 shadow-lg">
-            <X class="w-4 h-4" /> {{ t('Exit Big Picture') }}
-          </button>
-        </div>
-      </div>
-    </transition>
-
-    <div class="fixed bottom-5 right-5 z-[300] flex flex-col gap-3 pointer-events-none">
-      <transition-group name="toast">
-        <div v-for="toast in toasts" :key="toast.id" class="kip-card p-4 flex items-start gap-3 border-l-4 w-80 shadow-2xl pointer-events-auto" :class="toast.type === 'success' ? 'border-emerald-500' : toast.type === 'danger' ? 'border-red-500' : 'border-indigo-500'">
-          <component :is="getIcon(toast.icon)" class="w-6 h-6 mt-0.5 shrink-0" :class="toast.type === 'success' ? 'text-emerald-400' : toast.type === 'danger' ? 'text-red-400' : 'text-indigo-400'" />
-          <div class="overflow-hidden">
-            <h4 class="font-bold text-white text-sm truncate">{{ toast.title }}</h4>
-            <p class="text-white/60 text-xs mt-1 break-words">{{ toast.message }}</p>
-          </div>
-        </div>
-      </transition-group>
-    </div>
-
-    <transition name="fade">
-      <Overlay v-if="state.isOverlayActive" />
-    </transition>
-  </div>
-</template>
-
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { Component } from 'vue'
@@ -245,10 +24,13 @@ import {
   CheckCircle,
   XCircle,
   Info,
-  Activity,
   Menu,
   AlignLeft,
   ShieldCheck,
+  Pin,
+  Copy,
+  Activity,
+  Minimize2,
 } from 'lucide-vue-next'
 
 import Dashboard from '@/views/Dashboard.vue'
@@ -265,6 +47,8 @@ import Support from '@/views/Support.vue'
 import AppSettings from '@/views/Settings.vue'
 import Overlay from '@/views/Overlay.vue'
 import Nexus from '@/views/Nexus.vue'
+import BigPictureDeck from '@/components/bigpicture/BigPictureDeck.vue'
+import MiniWidgetDeck from '@/components/mini/MiniWidgetDeck.vue'
 
 import {
   state,
@@ -274,10 +58,6 @@ import {
   loadSettings,
   loadTranslations,
   loadDashboardStats,
-  windowMinimize,
-  windowMaximize,
-  windowClose,
-  toggleBigPicture,
   sanitizeHTML,
   getAvatarUrl,
   leaveVoiceChannel,
@@ -288,9 +68,39 @@ import {
   setupTauriListeners,
 } from '@/store'
 import {
+  isMaximized,
+  isPinned,
+  minimizeWindow,
+  toggleMaximize,
+  closeWindow,
+  togglePinWindow,
+  toggleBigPicture,
+  toggleMiniMode,
+  syncWindowState,
+} from '@/composables/useWindow'
+import { useOverlay } from '@/composables/useOverlay'
+import {
   bridge,
-  type ImportDroppedModsResult,
+  invokeSafe,
+  type ContentActionResultDto,
 } from '@/bridge'
+
+interface InitialAppPayload {
+  appName?: string
+  app_name?: string
+  appAccent?: string
+  app_accent?: string
+  version?: string
+  greeting?: string
+  detectedJava?: string
+  activeInstance?: string
+  systemMemoryGb?: number
+}
+
+interface AppSettingsExtension {
+  scale?: number
+  mica?: boolean
+}
 
 const isSidebarCollapsed = ref<boolean>(false)
 const isUpdating = ref<boolean>(false)
@@ -298,11 +108,21 @@ const hasUpdate = ref<boolean>(false)
 
 let mouseIdleTimer: ReturnType<typeof setTimeout> | null = null
 
+const { toggleOverlayState, exitOverlayMode } = useOverlay()
+
 const bootLogs = ref<string[]>([
-  'INITIALIZING NEURAL CORE...',
-  'ALLOCATING MEMORY BLOCKS...',
-  'ESTABLISHING SECURE CONNECTION...',
+  'INITIALIZING QUANTUM HARDWARE MATRIX...',
+  'AUDITING ISOLATED WAL PERSISTENCE...',
+  'CALIBRATING ACTIVE LAUNCHPAD CONTAINER...',
 ])
+
+const resolvedAppName = computed<string>(() => {
+  return state.appName || 'K.I.P.'
+})
+
+const resolvedAppAccent = computed<string>(() => {
+  return state.appAccent || ' Hub'
+})
 
 const viewsMap: Record<string, Component> = {
   dashboard: Dashboard,
@@ -346,7 +166,7 @@ const getIcon = (name: string): Component => {
 }
 
 const formatInstanceName = (path: string): string => {
-  if (!path) return 'Instance'
+  if (!path) return 'Default (.minecraft)'
   const p = path.toLowerCase().replace(/\\/g, '/')
   if (p.endsWith('.minecraft') || p.endsWith('.minecraft/')) {
     return 'Default (.minecraft)'
@@ -371,22 +191,22 @@ const handleMouseMove = (): void => {
 }
 
 const handleGlobalKeyDown = (e: KeyboardEvent): void => {
-  if (e.shiftKey && (e.key === 'Tab' || e.keyCode === 9)) {
+  if (e.key === 'Escape') {
+    if (state.showBoot) {
+      skipBootSequence()
+    } else if (state.isOverlayActive) {
+      toggleOverlayState()
+    }
+  } else if (e.shiftKey && (e.key === 'Tab' || e.keyCode === 9)) {
     e.preventDefault()
     e.stopPropagation()
     toggleOverlayState()
   }
 }
 
-const toggleOverlayState = (): void => {
-  state.isOverlayActive = !state.isOverlayActive
-  if (state.isOverlayActive) {
-    document.body.classList.add('in-game-overlay')
-    document.documentElement.classList.add('in-game-overlay')
-  } else {
-    document.body.classList.remove('in-game-overlay')
-    document.documentElement.classList.remove('in-game-overlay')
-  }
+const skipBootSequence = (): void => {
+  state.bootProgress = 100
+  state.showBoot = false
 }
 
 const checkForAppUpdates = async (): Promise<void> => {
@@ -396,8 +216,7 @@ const checkForAppUpdates = async (): Promise<void> => {
       hasUpdate.value = true
       showToast(t('Update Available'), `Version ${res.version} is ready to install.`, 'info')
     }
-  } catch {
-  }
+  } catch {}
 }
 
 const performUpdate = async (): Promise<void> => {
@@ -416,39 +235,65 @@ const performUpdate = async (): Promise<void> => {
 
 const initApp = async (): Promise<void> => {
   try {
-    const initData = await bridge.getInitData()
+    const initData = await invokeSafe<InitialAppPayload>('get_init_data')
     if (initData) {
-      state.appName = initData.appName
-      state.appAccent = initData.appAccent
-      state.greeting = initData.greeting
-      state.version = initData.version
+      state.appName = initData.appName || initData.app_name || 'K.I.P.'
+      state.appAccent = initData.appAccent || initData.app_accent || ' Hub'
+      state.greeting = initData.greeting || 'Welcome'
+      state.version = initData.version || '1.7.0'
     }
   } catch {
+    state.appName = 'K.I.P.'
+    state.appAccent = ' Hub'
   }
 
   await loadSettings()
   await loadTranslations()
   await loadDashboardStats()
   await checkForAppUpdates()
+  await syncWindowState()
+
+  const extSettings = state.settings as typeof state.settings & AppSettingsExtension
+
+  if (state.settings.low_graphics) {
+    document.documentElement.classList.add('low-graphics-mode')
+    document.body.classList.add('low-graphics-mode')
+  }
+
+  if (state.settings.mica === false) {
+    document.documentElement.classList.add('no-blur-mode')
+    document.body.classList.add('no-blur-mode')
+  }
+
+  const accent = state.settings.theme_accent || 'indigo'
+  document.documentElement.setAttribute('data-accent', accent)
+  document.body.setAttribute('data-accent', accent)
+
+  if (extSettings.scale && extSettings.scale !== 1.0) {
+    document.documentElement.style.zoom = String(extSettings.scale)
+    document.body.style.zoom = String(extSettings.scale)
+  }
 
   window.addEventListener('mousemove', handleMouseMove)
   window.addEventListener('keydown', handleGlobalKeyDown)
 
   const phases = [
-    { target: 15, text: 'MOUNTING VIRTUAL FILE SYSTEMS...', log: 'VFS: Mounted successfully.' },
-    { target: 35, text: 'LOADING MACHINE LEARNING MODELS...', log: 'AI: Models initialized.' },
-    { target: 60, text: 'ESTABLISHING P2P NODES...', log: 'NETWORK: Swarm nodes active.' },
-    { target: 85, text: 'CALIBRATING ENGINE INTERFACE...', log: 'UI: Render pipeline ready.' },
-    { target: 100, text: 'SYSTEM NOMINAL. WELCOME.', log: 'BOOT: Sequence complete.' },
+    { target: 20, text: 'AUDITING HOST COMPILERS & RUNTIMES...', log: 'JVM: OpenJDK matrix synchronized.' },
+    { target: 45, text: 'MOUNTING MINECRAFT 26.x REPOSITORIES...', log: 'STORAGE: Virtual instance linked.' },
+    { target: 70, text: 'CALIBRATING K.I.P. SHIELD HEURISTICS...', log: 'SECURITY: Real-time integrity primed.' },
+    { target: 90, text: 'SYNCHRONIZING SECURE WEBRTC MESH...', log: 'NETWORK: Signaling gate online.' },
+    { target: 100, text: 'SYSTEM OPERATIONAL • LAUNCHPAD READY', log: 'CORE: Launch sequence initialized.' },
   ]
 
   let currentPhase = 0
 
   const animateProgress = (): void => {
+    if (!state.showBoot) return
+
     if (currentPhase >= phases.length) {
       setTimeout(() => {
         state.showBoot = false
-      }, 1000)
+      }, 700)
       return
     }
 
@@ -458,29 +303,32 @@ const initApp = async (): Promise<void> => {
     state.bootText = phase.text
 
     const step = (): void => {
+      if (!state.showBoot) return
+
       if (state.bootProgress < target) {
-        state.bootProgress += Math.random() * 3 + 1
+        state.bootProgress += Math.random() * 4 + 2
         if (state.bootProgress > target) state.bootProgress = target
         requestAnimationFrame(step)
       } else {
         bootLogs.value.push(phase.log)
         if (bootLogs.value.length > 5) bootLogs.value.shift()
         currentPhase++
-        setTimeout(animateProgress, 250)
+        setTimeout(animateProgress, 200)
       }
     }
     requestAnimationFrame(step)
   }
 
-  setTimeout(animateProgress, 300)
+  setTimeout(animateProgress, 200)
 }
 
 const changeInstance = async (): Promise<void> => {
   if (state.settings.mc_dir) {
     try {
-      const res = await bridge.saveSetting('mc_dir', state.settings.mc_dir)
+      const res = await invokeSafe<boolean>('change_instance', { newDir: state.settings.mc_dir })
       if (res) {
         showToast(t('Instance Changed'), t('Switched game directory'), 'success')
+        await loadSettings()
         await loadDashboardStats()
       }
     } catch (err: unknown) {
@@ -500,11 +348,11 @@ const handleFileDrop = async (e: DragEvent): Promise<void> => {
 
     if (filePaths.length > 0) {
       try {
-        const res: ImportDroppedModsResult = await bridge.importDroppedMods(filePaths)
+        const res: ContentActionResultDto = await bridge.importDroppedMods(filePaths)
         if (res.success) {
           showToast(
             t('Imported'),
-            `${t('Successfully imported')} ${res.count} ${t('items.')}`,
+            `${t('Successfully imported')} ${res.count || 0} ${t('items.')}`,
             'success'
           )
         } else {
@@ -523,11 +371,14 @@ onMounted(() => {
     onDaemonStatus: (isRunning: boolean, status: string) => {
       state.isMcRunning = isRunning
       state.mcStatusText = status
+      if (!isRunning && state.isOverlayActive) {
+        exitOverlayMode()
+      }
     },
     onConsoleLine: (line: string) => {
       let safeLine = sanitizeHTML(line)
       if (safeLine.includes('ERROR') || safeLine.includes('Exception')) {
-        safeLine = `<span class="text-red-400">${safeLine}</span>`
+        safeLine = `<span class="text-rose-400">${safeLine}</span>`
       } else if (safeLine.includes('WARN')) {
         safeLine = `<span class="text-amber-400">${safeLine}</span>`
       }
@@ -576,3 +427,375 @@ onBeforeUnmount(() => {
   leaveVoiceChannel()
 })
 </script>
+
+<template>
+  <div
+    class="flex flex-col h-full overflow-hidden relative border transition-all duration-700 ease-out"
+    :class="[
+      state.isBigPicture ? 'big-picture-mode' : '',
+      state.isMiniMode ? 'border-none rounded-2xl' : '',
+      state.isOverlayActive ? 'border-none rounded-none' : '',
+      state.isMcRunning
+        ? 'border-emerald-500/50 shadow-[0_0_60px_rgba(16,185,129,0.25)]'
+        : state.settings.safe_mode
+        ? 'border-rose-500/50 shadow-[0_0_60px_rgba(244,63,94,0.25)]'
+        : 'border-[var(--accent-border)] shadow-[0_0_50px_var(--accent-glow)]'
+    ]"
+    :style="{ backgroundColor: state.isOverlayActive ? 'transparent' : (state.settings.mica && !state.settings.low_graphics ? 'rgba(5, 5, 8, 0.78)' : '#07070a') }"
+  >
+    <BigPictureDeck v-if="state.isBigPicture" @exit="toggleBigPicture" />
+
+    <MiniWidgetDeck v-else-if="state.isMiniMode" @expand="toggleMiniMode" />
+
+    <template v-else>
+      <div
+        v-if="!state.settings.low_graphics"
+        class="fixed inset-0 pointer-events-none z-0 overflow-hidden transition-opacity duration-700"
+        :class="state.isOverlayActive ? 'opacity-0' : 'opacity-100'"
+      >
+        <div class="absolute -top-[10%] -left-[10%] w-[55vw] h-[55vw] bg-[var(--accent-color)] opacity-20 blur-[140px] rounded-full animate-blob mix-blend-screen"></div>
+        <div class="absolute top-[20%] -right-[10%] w-[45vw] h-[45vw] bg-purple-600/20 blur-[140px] rounded-full animate-blob animation-delay-2000 mix-blend-screen"></div>
+        <div class="absolute -bottom-[20%] left-[20%] w-[65vw] h-[65vw] bg-emerald-600/15 blur-[140px] rounded-full animate-blob animation-delay-4000 mix-blend-screen"></div>
+        <div class="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:60px_60px] [transform:perspective(1000px)_rotateX(60deg)_translateY(-100px)_scale(2.5)] opacity-30"></div>
+        <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_20%,rgba(5,5,8,0.92)_95%)]"></div>
+      </div>
+
+      <transition name="fade" mode="out-in">
+        <div v-if="state.showBoot" class="fixed inset-0 bg-[#020204] z-[9999] flex flex-col items-center justify-center overflow-hidden select-none">
+          <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--accent-subtle)_0%,transparent_70%)]"></div>
+          <div class="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:32px_32px]"></div>
+
+          <button
+            @click="skipBootSequence"
+            class="absolute top-6 right-6 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/40 hover:text-white text-xs font-mono font-bold uppercase tracking-wider transition-all z-20 flex items-center gap-2 cursor-pointer"
+          >
+            <span>Skip Boot [ESC]</span>
+          </button>
+
+          <div class="relative z-10 flex flex-col items-center w-full max-w-xl px-6">
+            <div class="relative w-44 h-44 mb-8 flex items-center justify-center">
+              <div class="absolute inset-0 rounded-full border border-[var(--accent-border)] border-dashed animate-[spin_12s_linear_infinite]"></div>
+              <div class="absolute inset-3 rounded-full border-2 border-t-[var(--accent-color)] border-b-emerald-400 border-l-transparent border-r-transparent animate-[spin_4s_cubic-bezier(0.4,0,0.2,1)_infinite] shadow-[0_0_30px_var(--accent-glow)]"></div>
+              <div class="absolute inset-6 rounded-full border border-purple-500/30 animate-[spin_8s_linear_infinite_reverse]"></div>
+              <div class="absolute inset-10 rounded-full bg-[var(--accent-subtle)] blur-xl animate-pulse"></div>
+              <div class="relative z-10 p-5 rounded-3xl bg-black/60 border border-white/15 backdrop-blur-xl shadow-2xl flex items-center justify-center">
+                <Hexagon class="text-white w-12 h-12 stroke-[1.5] drop-shadow-[0_0_20px_var(--accent-glow)]" />
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3 mb-2">
+              <h1 class="text-5xl font-black tracking-[0.2em] uppercase text-white drop-shadow-[0_0_25px_rgba(255,255,255,0.4)]">
+                {{ resolvedAppName }}
+              </h1>
+              <span class="px-3 py-1 rounded-xl text-xs font-black uppercase tracking-widest bg-gradient-to-r from-[var(--accent-subtle)] to-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                {{ resolvedAppAccent }}
+              </span>
+            </div>
+
+            <p class="text-white/40 font-mono text-[10px] tracking-[0.35em] uppercase mb-8">
+              Neural Gaming Fabric • Minecraft 26.x Engine Core
+            </p>
+
+            <div class="w-full flex flex-col gap-3">
+              <div class="flex justify-between items-center px-1 font-mono text-xs">
+                <span class="text-white/50 uppercase tracking-widest flex items-center gap-2 font-bold">
+                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                  <span>{{ t(state.bootText) }}</span>
+                </span>
+                <span class="font-black text-[var(--accent-color)] drop-shadow-[0_0_10px_var(--accent-glow)]">
+                  {{ Math.floor(state.bootProgress) }}%
+                </span>
+              </div>
+
+              <div class="w-full h-2 bg-black/80 border border-white/10 rounded-full overflow-hidden p-0.5 shadow-inner">
+                <div
+                  class="h-full bg-gradient-to-r from-[var(--accent-color)] via-purple-500 to-emerald-400 rounded-full transition-all duration-150 ease-out shadow-[0_0_15px_var(--accent-glow)]"
+                  :style="{ width: state.bootProgress + '%' }"
+                ></div>
+              </div>
+
+              <div class="h-28 mt-4 bg-black/60 border border-white/5 rounded-2xl p-4 overflow-hidden relative shadow-inner flex flex-col justify-end">
+                <div class="absolute inset-0 bg-gradient-to-b from-[#020204] via-transparent to-transparent pointer-events-none z-10"></div>
+                <div class="font-mono text-[10px] text-emerald-400/80 tracking-wider flex flex-col gap-1.5">
+                  <div v-for="(log, idx) in bootLogs" :key="idx" class="truncate" :class="{'text-white font-bold': idx === bootLogs.length - 1, 'opacity-40': idx < bootLogs.length - 2}">
+                    <span class="text-[var(--accent-color)]">></span> {{ log }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <transition name="fade">
+        <div v-if="!state.showBoot && !state.settings.eula_accepted" class="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[99999] flex items-center justify-center p-10 cursor-default">
+          <div class="kip-card max-w-2xl w-full p-8 border-[var(--accent-border)] shadow-[0_0_50px_var(--accent-glow)] relative overflow-hidden flex flex-col">
+            <div class="absolute -top-32 -left-32 w-64 h-64 bg-[var(--accent-subtle)] blur-[100px] rounded-full pointer-events-none"></div>
+            <h2 class="text-3xl font-extrabold mb-4 flex items-center gap-3 relative z-10"><ShieldCheck class="w-8 h-8 text-[var(--accent-color)]" /> License Agreement</h2>
+            <div class="bg-black/40 border border-white/5 p-5 rounded-xl mb-6 h-64 overflow-y-auto custom-scroll text-sm text-white/70 leading-relaxed font-medium relative z-10 shadow-inner">
+              NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
+              <br><br>
+              This software downloads files directly from Mojang servers. A valid Minecraft license is required to play. Provided "AS IS" under the GNU General Public License v3.0 (GPL-3.0).
+              <br><br>
+              By clicking "I Accept", you agree to these terms and confirm you understand this is a third-party open-source manager licensed under GPL-3.0. Data such as crash logs may be sent to AI providers (Google/OpenAI/Anthropic) if you explicitly use the AI Support feature. Your Microsoft tokens are stored locally. No personal data is collected by K.I.P. Studio.
+            </div>
+            <button @click="acceptEula" class="kip-btn-primary w-full py-4 text-lg tracking-widest uppercase relative z-10">I Accept</button>
+          </div>
+        </div>
+      </transition>
+
+      <header
+        v-show="!state.isOverlayActive"
+        class="titlebar flex justify-between items-center px-5 py-2.5 z-50 transition-colors duration-300 bg-black/70 border-b border-white/10 backdrop-blur-2xl relative select-none"
+        data-tauri-drag-region
+        @dblclick="toggleMaximize"
+      >
+        <div class="flex items-center gap-4 pointer-events-none">
+          <div class="flex items-center gap-2.5">
+            <div class="p-1.5 rounded-xl bg-[var(--accent-subtle)] border border-[var(--accent-border)] text-[var(--accent-color)]">
+              <Hexagon class="w-4 h-4 animate-pulse stroke-[2.2]" />
+            </div>
+            <div class="flex flex-col">
+              <span class="font-black tracking-[0.15em] text-xs uppercase leading-none text-white">
+                {{ resolvedAppName }}<span class="text-[var(--accent-color)]">{{ resolvedAppAccent }}</span>
+              </span>
+              <span class="text-[8px] font-mono text-white/30 uppercase tracking-widest mt-0.5">Matrix v{{ state.version }}</span>
+            </div>
+          </div>
+
+          <div class="w-px h-5 bg-white/10"></div>
+
+          <div
+            class="flex items-center gap-2 px-3 py-1 rounded-full border text-[10px] font-mono font-bold uppercase tracking-wider backdrop-blur-md"
+            :class="state.isMcRunning ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' : 'bg-white/5 text-white/50 border-white/10'"
+          >
+            <span
+              class="w-2 h-2 rounded-full"
+              :class="state.isMcRunning ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)] animate-pulse' : 'bg-white/30'"
+            ></span>
+            <span>{{ state.isMcRunning ? t(state.mcStatusText) : 'Standby Matrix' }}</span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3 text-xs font-mono text-white/40 pointer-events-none">
+          <span class="text-[9px] uppercase tracking-widest flex items-center gap-1.5">
+            <Activity class="w-3 h-3 text-[var(--accent-color)]" />
+            <span>Profile:</span>
+            <strong class="text-white/80 font-bold">{{ formatInstanceName(state.settings.mc_dir) }}</strong>
+          </span>
+        </div>
+
+        <div class="flex items-center gap-1.5 titlebar-btn pointer-events-auto">
+          <button
+            @click="toggleOverlayState"
+            class="p-2 text-white/40 hover:text-indigo-400 hover:bg-white/5 rounded-xl transition cursor-pointer"
+            title="Toggle In-Game HUD Overlay [Shift + Tab]"
+          >
+            <Zap class="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            @click="toggleMiniMode"
+            class="p-2 text-white/40 hover:text-[var(--accent-color)] hover:bg-white/5 rounded-xl transition cursor-pointer"
+            title="Switch to Mini Companion Widget"
+          >
+            <Minimize2 class="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            @click="togglePinWindow"
+            class="p-2 rounded-xl transition flex items-center justify-center cursor-pointer"
+            :class="isPinned ? 'bg-[var(--accent-subtle)] text-[var(--accent-color)] border border-[var(--accent-border)] shadow-[0_0_12px_var(--accent-glow)]' : 'text-white/40 hover:text-white hover:bg-white/5'"
+            :title="isPinned ? 'Unpin Window' : 'Pin Always on Top'"
+          >
+            <Pin class="w-3.5 h-3.5" :class="isPinned ? 'fill-current' : ''" />
+          </button>
+
+          <button
+            @click="toggleBigPicture"
+            class="p-2 text-white/40 hover:text-amber-400 hover:bg-white/5 rounded-xl transition cursor-pointer"
+            :title="t('Big Picture Mode')"
+          >
+            <Gamepad2 class="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            @click="state.isNexusOpen = !state.isNexusOpen"
+            class="p-2 text-white/40 hover:text-emerald-400 hover:bg-white/5 rounded-xl transition relative cursor-pointer"
+            :title="t('K.I.P. Nexus')"
+          >
+            <Users class="w-3.5 h-3.5" />
+            <span class="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.9)] animate-pulse"></span>
+          </button>
+
+          <div class="w-px h-4 bg-white/10 mx-1"></div>
+
+          <button
+            @click="minimizeWindow"
+            class="p-2 text-white/40 hover:text-white hover:bg-white/5 rounded-xl transition cursor-pointer"
+            title="Minimize"
+          >
+            <Minus class="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            @click="toggleMaximize"
+            class="p-2 text-white/40 hover:text-[var(--accent-color)] hover:bg-white/5 rounded-xl transition cursor-pointer"
+            :title="isMaximized ? 'Restore' : 'Maximize'"
+          >
+            <Copy v-if="isMaximized" class="w-3 h-3 stroke-[2.2]" />
+            <Square v-else class="w-3 h-3 stroke-[2.2]" />
+          </button>
+
+          <button
+            @click="closeWindow"
+            class="p-2 text-white/40 hover:text-white hover:bg-rose-600 rounded-xl transition duration-150 cursor-pointer"
+            title="Close [ESC]"
+          >
+            <X class="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </header>
+
+      <div v-show="!state.isOverlayActive" class="flex flex-1 overflow-hidden relative z-10">
+        <div
+          v-show="!state.isMiniMode"
+          class="border-r border-white/5 flex flex-col py-5 gap-1.5 z-40 transition-all duration-300 bg-black/45 backdrop-blur-xl shrink-0"
+          :class="isSidebarCollapsed ? 'w-20 px-3' : 'w-64 px-4'"
+        >
+          <div class="flex items-center justify-between mb-3 px-2" :class="isSidebarCollapsed ? 'justify-center' : ''">
+            <button @click="isSidebarCollapsed = !isSidebarCollapsed" class="text-white/40 hover:text-white transition p-1 cursor-pointer">
+              <Menu v-if="isSidebarCollapsed" class="w-5 h-5" />
+              <AlignLeft v-else class="w-5 h-5" />
+            </button>
+          </div>
+
+          <div v-if="!isSidebarCollapsed" class="px-2 mb-3">
+            <label class="text-[8px] font-mono text-white/30 uppercase font-black tracking-widest block mb-1">Active Universe</label>
+            <select
+              v-model="state.settings.mc_dir"
+              @change="changeInstance"
+              class="kip-input appearance-none cursor-pointer text-xs py-2 truncate font-mono bg-black/60 border-white/10"
+              :title="state.settings.mc_dir"
+            >
+              <option v-for="inst in state.settings.instances" :key="inst" :value="inst">{{ formatInstanceName(inst) }}</option>
+            </select>
+          </div>
+
+          <div class="flex flex-col gap-1 overflow-y-auto custom-scroll pr-1 flex-1">
+            <div
+              v-for="nav in state.navItems"
+              :key="nav.id"
+              @click="state.currentView = nav.id"
+              class="flex items-center rounded-xl cursor-pointer transition-all duration-200"
+              :class="[
+                state.currentView === nav.id
+                  ? 'bg-[var(--accent-subtle)] text-[var(--accent-color)] font-bold border border-[var(--accent-border)] shadow-[0_0_15px_var(--accent-glow)]'
+                  : 'text-white/60 hover:bg-white/5 hover:text-white border border-transparent',
+                isSidebarCollapsed ? 'p-3 justify-center' : 'px-4 py-2.5 gap-3'
+              ]"
+              :title="isSidebarCollapsed ? t(nav.label) : ''"
+            >
+              <component :is="getIcon(nav.icon)" class="w-4 h-4 shrink-0" />
+              <span v-if="!isSidebarCollapsed" class="text-xs font-semibold tracking-wide">{{ t(nav.label) }}</span>
+            </div>
+          </div>
+
+          <div class="mt-auto pt-2"></div>
+
+          <div
+            class="px-3.5 py-2.5 rounded-xl border transition-colors duration-300 flex items-center gap-2.5"
+            :class="[
+              state.isMcRunning ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-black/40 border-white/5',
+              isSidebarCollapsed ? 'justify-center p-2.5' : 'mx-1 mb-2'
+            ]"
+            :title="isSidebarCollapsed ? t(state.mcStatusText) : ''"
+          >
+            <div
+              class="w-2 h-2 rounded-full shrink-0"
+              :class="state.isMcRunning ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse' : 'bg-white/30'"
+            ></div>
+            <span
+              v-if="!isSidebarCollapsed"
+              class="text-[11px] font-mono font-bold truncate"
+              :class="state.isMcRunning ? 'text-emerald-400' : 'text-white/40'"
+            >
+              {{ t(state.mcStatusText) }}
+            </span>
+          </div>
+
+          <button
+            v-if="hasUpdate"
+            @click="performUpdate"
+            :disabled="isUpdating"
+            class="kip-btn-primary py-2.5 text-xs font-black uppercase tracking-wider cursor-pointer"
+            :class="isSidebarCollapsed ? 'p-2.5' : 'w-full mx-1'"
+            :title="isSidebarCollapsed ? t('Update App') : ''"
+          >
+            <Loader v-if="isUpdating" class="w-3.5 h-3.5 animate-spin" />
+            <Download v-else class="w-3.5 h-3.5" />
+            <span v-if="!isSidebarCollapsed">{{ isUpdating ? t('Updating...') : t('Update App') }}</span>
+          </button>
+        </div>
+
+        <div
+          class="flex-1 overflow-y-auto custom-scroll relative flex flex-col min-h-0 transition-all duration-500 p-8"
+          id="main-content"
+        >
+          <transition name="fade" mode="out-in">
+            <component :is="currentViewComponent" />
+          </transition>
+        </div>
+
+        <transition name="slide">
+          <Nexus v-if="state.isNexusOpen" />
+        </transition>
+      </div>
+    </template>
+
+    <transition name="fade">
+      <div
+        v-if="state.partyInvite"
+        class="fixed top-12 left-1/2 -translate-x-1/2 z-[10000] kip-card p-5 border border-[var(--accent-border)] shadow-[0_0_50px_var(--accent-glow)] flex items-center gap-6 animate-[bounce_2s_infinite] bg-black/90 backdrop-blur-2xl"
+      >
+        <div class="relative shrink-0">
+          <img :src="getAvatarUrl(state.partyInvite.senderName)" class="w-12 h-12 rounded-xl object-cover border-2 border-[var(--accent-color)] shadow-[0_0_15px_var(--accent-glow)]">
+          <div class="absolute -bottom-2 -right-2 p-1 bg-black rounded-lg border border-white/10">
+            <Gamepad2 class="w-4 h-4 text-emerald-400 animate-pulse" />
+          </div>
+        </div>
+        <div class="flex-1 min-w-0">
+          <h4 class="font-black text-white text-base tracking-wider leading-none mb-1">K.I.P. Party Beacon</h4>
+          <p class="text-xs text-white/70 font-mono">From <strong class="text-[var(--accent-color)]">{{ state.partyInvite.senderName }}</strong> • {{ state.partyInvite.mods.length }} sync packages</p>
+        </div>
+        <div class="flex gap-2 shrink-0 ml-4">
+          <button @click="acceptPartyInvite" class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition shadow-[0_0_15px_rgba(16,185,129,0.4)] cursor-pointer">Accept</button>
+          <button @click="declinePartyInvite" class="px-5 py-2.5 bg-rose-500/20 hover:bg-rose-500 text-rose-400 hover:text-white font-bold text-xs uppercase tracking-wider rounded-xl transition border border-rose-500/30 cursor-pointer">Decline</button>
+        </div>
+      </div>
+    </transition>
+
+    <div class="fixed bottom-5 right-5 z-[300] flex flex-col gap-3 pointer-events-none">
+      <transition-group name="toast">
+        <div
+          v-for="toast in toasts"
+          :key="toast.id"
+          class="kip-card p-4 flex items-start gap-3 border-l-4 w-80 shadow-2xl pointer-events-auto"
+          :class="toast.type === 'success' ? 'border-emerald-500' : toast.type === 'danger' ? 'border-rose-500' : 'border-[var(--accent-color)]'"
+        >
+          <component
+            :is="getIcon(toast.icon)"
+            class="w-5 h-5 mt-0.5 shrink-0"
+            :class="toast.type === 'success' ? 'text-emerald-400' : toast.type === 'danger' ? 'text-rose-400' : 'text-[var(--accent-color)]'"
+          />
+          <div class="overflow-hidden">
+            <h4 class="font-black text-white text-xs uppercase tracking-wider">{{ toast.title }}</h4>
+            <p class="text-white/70 text-xs mt-0.5 break-words font-medium leading-relaxed">{{ toast.message }}</p>
+          </div>
+        </div>
+      </transition-group>
+    </div>
+
+    <Overlay v-if="state.isOverlayActive" />
+  </div>
+</template>

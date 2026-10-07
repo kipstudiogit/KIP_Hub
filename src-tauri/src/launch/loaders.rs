@@ -6,8 +6,13 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 use crate::java_manager::JavaManager;
 use crate::launch::libraries::LibraryManager;
+
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub struct LoaderManager;
 
@@ -229,15 +234,20 @@ impl LoaderManager {
                     Err(_) => java.ensure_java_runtime(mc_dir, req_major, app).await?,
                 };
 
-                let mut child = Command::new(&java_bin)
-                    .arg("-jar")
+                let mut cmd = Command::new(&java_bin);
+                cmd.arg("-jar")
                     .arg(&installer_path)
                     .arg("--installClient")
                     .arg(mc_dir.to_string_lossy().to_string())
                     .stdout(Stdio::null())
-                    .stderr(Stdio::piped())
-                    .spawn()
-                    .map_err(|e| format!("Failed to spawn Forge installer: {}", e))?;
+                    .stderr(Stdio::piped());
+
+                #[cfg(target_os = "windows")]
+                {
+                    cmd.creation_flags(CREATE_NO_WINDOW);
+                }
+
+                let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn Forge installer: {}", e))?;
 
                 let mut error_log = String::new();
                 if let Some(stderr) = child.stderr.take() {
@@ -298,6 +308,10 @@ impl LoaderManager {
                 "21.0.".to_string()
             } else if mc_version == "1.21.1" {
                 "21.1.".to_string()
+            } else if mc_version == "1.21.2" || mc_version == "1.21.3" {
+                "21.3.".to_string()
+            } else if mc_version == "1.21.4" {
+                "21.4.".to_string()
             } else {
                 let sub = mc_version.strip_prefix("1.").unwrap_or(mc_version);
                 format!("{}.", sub)
@@ -326,10 +340,22 @@ impl LoaderManager {
         };
 
         let profile_name = format!("neoforge-{}", actual_neo_ver);
-        let profile_dir = versions_dir.join(&profile_name);
-        let profile_json_path = profile_dir.join(format!("{}.json", profile_name));
 
-        if !profile_json_path.exists() || profile_json_path.metadata().map(|m| m.len() < 10).unwrap_or(true) {
+        let mut existing_profile = None;
+        if let Ok(entries) = fs::read_dir(&versions_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.contains("neoforge") && (name.contains(&actual_neo_ver) || (name.contains(mc_version) && !actual_neo_ver.is_empty())) {
+                    let json_path = entry.path().join(format!("{}.json", name));
+                    if json_path.exists() && json_path.metadata().map(|m| m.len() > 100).unwrap_or(false) {
+                        existing_profile = Some(name);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if existing_profile.is_none() {
             let _ = app.emit("updateLaunchStatus", format!("Installing NeoForge {}...", actual_neo_ver));
             let installer_url = format!(
                 "https://maven.neoforged.net/releases/net/neoforged/neoforge/{}/neoforge-{}-installer.jar",
@@ -349,15 +375,20 @@ impl LoaderManager {
                     Err(_) => java.ensure_java_runtime(mc_dir, req_major, app).await?,
                 };
 
-                let mut child = Command::new(&java_bin)
-                    .arg("-jar")
+                let mut cmd = Command::new(&java_bin);
+                cmd.arg("-jar")
                     .arg(&installer_path)
-                    .arg("--install-client")
+                    .arg("--installClient")
                     .arg(mc_dir.to_string_lossy().to_string())
                     .stdout(Stdio::null())
-                    .stderr(Stdio::piped())
-                    .spawn()
-                    .map_err(|e| format!("Failed to spawn NeoForge installer: {}", e))?;
+                    .stderr(Stdio::piped());
+
+                #[cfg(target_os = "windows")]
+                {
+                    cmd.creation_flags(CREATE_NO_WINDOW);
+                }
+
+                let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn NeoForge installer: {}", e))?;
 
                 let mut error_log = String::new();
                 if let Some(stderr) = child.stderr.take() {
@@ -377,15 +408,28 @@ impl LoaderManager {
             }
         }
 
-        if let Ok(entries) = fs::read_dir(&versions_dir) {
+        let resolved_name = if let Ok(entries) = fs::read_dir(&versions_dir) {
+            let mut found = None;
             for entry in entries.filter_map(|e| e.ok()) {
                 let name = entry.file_name().to_string_lossy().to_string();
                 if name.contains("neoforge") && (name.contains(&actual_neo_ver) || name.contains(mc_version)) {
-                    return Ok(name);
+                    let p_json = entry.path().join(format!("{}.json", name));
+                    if p_json.exists() {
+                        if let Ok(content) = fs::read_to_string(&p_json) {
+                            if let Ok(data) = serde_json::from_str::<Value>(&content) {
+                                LibraryManager::download_libraries(client, &data, mc_dir).await;
+                            }
+                        }
+                        found = Some(name);
+                        break;
+                    }
                 }
             }
-        }
+            found.unwrap_or(profile_name)
+        } else {
+            profile_name
+        };
 
-        Ok(profile_name)
+        Ok(resolved_name)
     }
 }

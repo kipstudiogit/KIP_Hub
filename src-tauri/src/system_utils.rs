@@ -1,13 +1,34 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use parking_lot::Mutex;
 use sysinfo::{ProcessesToUpdate, System};
 use walkdir::WalkDir;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+pub const CREATE_NO_WINDOW: u32 = 0x08000000;
+pub const DETACHED_PROCESS: u32 = 0x00000008;
+
+static CACHED_JAVA_VERSION: Mutex<Option<String>> = Mutex::new(None);
 
 pub struct SystemUtils;
 
 impl SystemUtils {
+    pub fn silent_command(program: &str) -> Command {
+        let mut cmd = Command::new(program);
+        cmd.stdin(Stdio::null());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        #[cfg(target_os = "windows")]
+        {
+            cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+        }
+        cmd
+    }
+
     pub fn optimize_fps(mc_dir: &str) -> i32 {
         let options_path = Path::new(mc_dir).join("options.txt");
         if !options_path.exists() {
@@ -114,7 +135,9 @@ impl SystemUtils {
     pub fn flush_dns_cache() {
         #[cfg(target_os = "windows")]
         {
-            let _ = Command::new("ipconfig").arg("/flushdns").output();
+            let mut cmd = Self::silent_command("ipconfig");
+            cmd.arg("/flushdns");
+            let _ = cmd.output();
         }
         #[cfg(target_os = "macos")]
         {
@@ -128,16 +151,28 @@ impl SystemUtils {
     }
 
     pub fn get_java_version() -> String {
-        if let Ok(output) = Command::new("java").arg("-version").output() {
+        if let Some(ref ver) = *CACHED_JAVA_VERSION.lock() {
+            return ver.clone();
+        }
+
+        let mut cmd = Self::silent_command("java");
+        cmd.arg("-version");
+
+        if let Ok(output) = cmd.output() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
             if stderr.contains("version") {
                 let parts: Vec<&str> = stderr.split('"').collect();
                 if parts.len() > 1 {
-                    return parts[1].to_string();
+                    let parsed = parts[1].to_string();
+                    *CACHED_JAVA_VERSION.lock() = Some(parsed.clone());
+                    return parsed;
                 }
             }
         }
-        "8.0.0".to_string()
+
+        let fallback = "8.0.0".to_string();
+        *CACHED_JAVA_VERSION.lock() = Some(fallback.clone());
+        fallback
     }
 
     pub fn generate_jvm_args_for_ram(ram_allocation: i32) -> (i32, String) {

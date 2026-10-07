@@ -1,6 +1,68 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+:root {
+  --accent-rgb: 99, 102, 241;
+  --accent-color: rgb(var(--accent-rgb));
+  --accent-hover: rgb(129, 140, 248);
+  --accent-glow: rgba(var(--accent-rgb), 0.35);
+  --accent-subtle: rgba(var(--accent-rgb), 0.15);
+  --accent-border: rgba(var(--accent-rgb), 0.35);
+}
+
+[data-accent="indigo"] {
+  --accent-rgb: 99, 102, 241;
+  --accent-color: rgb(var(--accent-rgb));
+  --accent-hover: rgb(129, 140, 248);
+  --accent-glow: rgba(var(--accent-rgb), 0.35);
+  --accent-subtle: rgba(var(--accent-rgb), 0.15);
+  --accent-border: rgba(var(--accent-rgb), 0.35);
+}
+
+[data-accent="emerald"] {
+  --accent-rgb: 16, 185, 129;
+  --accent-color: rgb(var(--accent-rgb));
+  --accent-hover: rgb(52, 211, 153);
+  --accent-glow: rgba(var(--accent-rgb), 0.35);
+  --accent-subtle: rgba(var(--accent-rgb), 0.15);
+  --accent-border: rgba(var(--accent-rgb), 0.35);
+}
+
+[data-accent="purple"] {
+  --accent-rgb: 168, 85, 247;
+  --accent-color: rgb(var(--accent-rgb));
+  --accent-hover: rgb(192, 132, 252);
+  --accent-glow: rgba(var(--accent-rgb), 0.35);
+  --accent-subtle: rgba(var(--accent-rgb), 0.15);
+  --accent-border: rgba(var(--accent-rgb), 0.35);
+}
+
+[data-accent="amber"] {
+  --accent-rgb: 245, 158, 11;
+  --accent-color: rgb(var(--accent-rgb));
+  --accent-hover: rgb(251, 191, 36);
+  --accent-glow: rgba(var(--accent-rgb), 0.35);
+  --accent-subtle: rgba(var(--accent-rgb), 0.15);
+  --accent-border: rgba(var(--accent-rgb), 0.35);
+}
+
+[data-accent="cyan"] {
+  --accent-rgb: 6, 182, 212;
+  --accent-color: rgb(var(--accent-rgb));
+  --accent-hover: rgb(34, 211, 238);
+  --accent-glow: rgba(var(--accent-rgb), 0.35);
+  --accent-subtle: rgba(var(--accent-rgb), 0.15);
+  --accent-border: rgba(var(--accent-rgb), 0.35);
+}
+
+[data-accent="rose"] {
+  --accent-rgb: 244, 63, 94;
+  --accent-color: rgb(var(--accent-rgb));
+  --accent-hover: rgb(251, 113, 133);
+  --accent-glow: rgba(var(--accent-rgb), 0.35);
+  --accent-subtle: rgba(var(--accent-rgb), 0.15);
+  --accent-border: rgba(var(--accent-rgb), 0.35);
+}
 
 @layer base {
   * {
@@ -12,7 +74,10 @@
   html, body {
     margin: 0;
     padding: 0;
-    background-color: #050505 !important;
+    background-color: transparent !important;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
   }
 
   body {
@@ -20,6 +85,7 @@
     -webkit-user-select: none;
     color: #fafafa;
     overflow: hidden;
+    border-radius: 18px;
   }
 
   #vanta-bg {
@@ -32,9 +98,16 @@
   }
 
   ::selection {
-    background: rgba(99, 102, 241, 0.4);
+    background: var(--accent-glow);
     color: #ffffff;
   }
+}
+
+.in-game-overlay,
+.in-game-overlay body {
+  border-radius: 0 !important;
+  border: none !important;
+  background-color: transparent !important;
 }
 
 @layer utilities {
@@ -66,36 +139,62 @@
   }
 
   .gamepad-focus {
-    outline: 3px solid #6366F1 !important;
-    outline-offset: 2px !important;
-    box-shadow: 0 0 20px rgba(99, 102, 241, 0.8) !important;
+    outline: 3px solid var(--accent-color) !important;
+    outline-offset: 3px !important;
+    box-shadow: 0 0 30px var(--accent-glow) !important;
     transform: scale(1.03) !important;
     transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
     z-index: 50 !important;
   }
 
+  .big-picture-mode {
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  .big-picture-mode .titlebar {
+    display: none !important;
+  }
+
+  .cursor-none {
+    cursor: none !important;
+  }
+
   .kip-card {
-    @apply bg-black/40 border border-white/5 backdrop-blur-xl shadow-2xl rounded-3xl;
+    @apply bg-black/45 border border-white/10 backdrop-blur-xl shadow-2xl rounded-3xl;
   }
 
   .kip-card-hover {
-    @apply hover:border-white/10 hover:bg-black/50 transition-all duration-300;
+    @apply hover:border-white/20 hover:bg-black/60 transition-all duration-300;
   }
 
   .kip-btn-primary {
-    @apply bg-indigo-500 hover:bg-indigo-400 text-white font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(99,102,241,0.3)] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: var(--accent-color) !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 20px var(--accent-glow) !important;
+    @apply font-bold rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer;
+  }
+
+  .kip-btn-primary:hover {
+    background-color: var(--accent-hover) !important;
   }
 
   .kip-btn-danger {
-    @apply bg-red-500 hover:bg-red-400 text-white font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(244,63,94,0.3)] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer;
   }
 
   .kip-btn-ghost {
-    @apply bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer;
   }
 
   .kip-input {
-    @apply w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-indigo-500 font-medium transition text-white text-sm placeholder:text-white/30;
+    @apply w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 font-medium transition text-white text-sm placeholder:text-white/30;
+  }
+
+  .kip-input:focus {
+    outline: none !important;
+    border-color: var(--accent-color) !important;
+    box-shadow: 0 0 15px var(--accent-subtle) !important;
   }
 
   .custom-scroll::-webkit-scrollbar {
@@ -117,14 +216,6 @@
     background: rgba(255, 255, 255, 0.3);
   }
 
-  .skeleton-box {
-    background: #1a1a24;
-    background-image: linear-gradient(to right, #1a1a24 0%, #2a2a3a 20%, #1a1a24 40%, #1a1a24 100%);
-    background-repeat: no-repeat;
-    background-size: 1000px 100%;
-    animation: shimmer 2s infinite linear forwards;
-  }
-
   .toggle-checkbox {
     top: 0;
     left: 0;
@@ -137,7 +228,7 @@
 
   .toggle-checkbox:checked {
     transform: translateX(100%);
-    border-color: #6366F1;
+    border-color: var(--accent-color) !important;
   }
 
   .toggle-label {
@@ -148,20 +239,36 @@
   }
 
   .toggle-checkbox:checked + .toggle-label {
-    background-color: #6366F1;
+    background-color: var(--accent-color) !important;
   }
+}
 
-  .big-picture-mode .titlebar {
-    display: none !important;
-  }
+.low-graphics-mode .animate-blob {
+  display: none !important;
+}
 
-  .cursor-none {
-    cursor: none !important;
-  }
+.low-graphics-mode * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  animation-duration: 0.001ms !important;
+}
 
-  .gamepad-badge {
-    @apply inline-flex items-center justify-center font-black rounded-lg text-[10px] tracking-wider uppercase px-2 py-0.5 border shadow-sm;
-  }
+.low-graphics-mode .kip-card {
+  background-color: #09090d !important;
+  box-shadow: none !important;
+}
+
+.no-blur-mode * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.no-blur-mode .kip-card {
+  background-color: #0c0c12 !important;
+}
+
+.no-blur-mode .titlebar {
+  background-color: #07070a !important;
 }
 
 .fade-enter-active, .fade-leave-active {
@@ -195,20 +302,6 @@
   transform: translateY(20px) scale(0.9);
 }
 
-.stagger-1 { animation: fadeInUp 0.5s ease-out 0.1s both; }
-.stagger-2 { animation: fadeInUp 0.5s ease-out 0.2s both; }
-.stagger-3 { animation: fadeInUp 0.5s ease-out 0.3s both; }
-
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes shimmer {
-  0% { background-position: -1000px 0; }
-  100% { background-position: 1000px 0; }
-}
-
 .markdown-body {
   line-height: 1.6;
   word-wrap: break-word;
@@ -217,8 +310,8 @@
   color: #ffffff; font-weight: 700; margin-top: 1.5em; margin-bottom: 0.5em;
 }
 .markdown-body p { margin-top: 0; margin-bottom: 1em; }
-.markdown-body a { color: #6366f1; text-decoration: none; transition: color 0.2s; }
-.markdown-body a:hover { color: #818cf8; text-decoration: underline; }
+.markdown-body a { color: var(--accent-color); text-decoration: none; transition: color 0.2s; }
+.markdown-body a:hover { color: var(--accent-hover); text-decoration: underline; }
 .markdown-body ul { list-style-type: disc; padding-left: 20px; margin-bottom: 0.5em; }
 .markdown-body code { background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
 .markdown-body pre { background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; margin: 10px 0; border: 1px solid rgba(255,255,255,0.1); overflow-x: auto; }

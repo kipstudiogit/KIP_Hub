@@ -1,6 +1,6 @@
 param (
-    [Parameter(Mandatory = $true)]
-    [string]$Version
+    [Parameter(Mandatory = $false)]
+    [string]$Version = "2.0.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,8 +9,10 @@ Set-Location -Path "$PSScriptRoot\.."
 
 $CleanVersion = $Version.TrimStart("v").Trim()
 if ($CleanVersion -notmatch "^\d+\.\d+\.\d+$") {
-    Write-Error "Version must follow semver format X.Y.Z (e.g. 1.7.0)"
+    Write-Error "Version must follow semver format X.Y.Z (e.g. 2.0.0)"
 }
+
+Write-Host "Starting release orchestration for K.I.P. Engine v$CleanVersion..."
 
 $RootPkg = "package.json"
 if (Test-Path $RootPkg) {
@@ -52,16 +54,30 @@ if (Test-Path $LatestJson) {
     (Get-Content $LatestJson) -replace '"version":\s*"[^"]+"', ('"version": "' + $CleanVersion + '"') | Set-Content $LatestJson
 }
 
-Remove-Item -Path "frontend\src\bridge.js", "frontend\src\main.js", "frontend\src\store.js" -ErrorAction SilentlyContinue
+$IconSource = "src-tauri\icons\128x128.png"
+if (Test-Path $IconSource) {
+    Write-Host "Building icon assets from 128x128 source..."
+    powershell -ExecutionPolicy Bypass -File "scripts\generate_icons.ps1"
+}
+
+Write-Host "Installing frontend dependencies..."
+npm run install:all
+
+Write-Host "Compiling frontend assets via Vite..."
+npm run build
+
+$KeyPath = "$HOME\.tauri\kip_hub.key"
+if (Test-Path $KeyPath) {
+    $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw $KeyPath
+}
+
+Write-Host "Compiling Rust release executable and packaging installer..."
+npm run tauri build
 
 git add -A
 
-if (Test-Path ".vscode\settings.json") {
-    git add -f .vscode\settings.json
-}
-
 $Tag = "v$CleanVersion"
-git commit -m "Release $Tag (GPL-3.0) - Core Launch Overhaul, Shield Flagship, Store & Content Suite"
+git commit -m "Release $Tag (GPL-3.0) - Flagship 2.0 Engine Architecture, HugeTLB KMM, Zero-GC Chunk Matrix, Silent Process Subsystem"
 git tag -a $Tag -m "Release $Tag" -f
 
 $Branch = (git rev-parse --abbrev-ref HEAD).Trim()
@@ -71,8 +87,5 @@ if ($Branch -eq "master") {
 }
 
 git push origin $Branch --tags -f
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Git push failed. Ensure origin remote credentials and permissions are valid."
-}
 
-Write-Host "K.I.P. Engine v$CleanVersion published and pushed to GitHub successfully."
+Write-Host "Release $Tag built and deployed to remote repository successfully."

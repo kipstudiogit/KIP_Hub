@@ -30,6 +30,7 @@ pub struct DetailedModInfo {
 pub struct ModManager;
 
 impl ModManager {
+    #[allow(dead_code)]
     pub fn get_sha1(filepath: &str) -> String {
         let mut file = match File::open(filepath) {
             Ok(f) => f,

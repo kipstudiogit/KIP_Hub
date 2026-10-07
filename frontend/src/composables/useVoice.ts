@@ -5,7 +5,13 @@ import { state } from '../stores/appState'
 import { showToast } from './useToasts'
 import { t } from './useI18n'
 
-export const voiceState = reactive<VoiceState>({
+export interface ExtendedVoiceState extends VoiceState {
+  isListenOnly: boolean
+  activeHostAddress: string
+  activeLobbyCode: string
+}
+
+export const voiceState = reactive<ExtendedVoiceState>({
   isConnected: false,
   channelId: '',
   isMuted: false,
@@ -18,7 +24,10 @@ export const voiceState = reactive<VoiceState>({
   selectedOutputId: localStorage.getItem('kip_speaker_id') || 'default',
   showSettings: false,
   isTestingMic: false,
-  testMicVolume: 0
+  testMicVolume: 0,
+  isListenOnly: false,
+  activeHostAddress: '',
+  activeLobbyCode: ''
 })
 
 let rawMicStream: MediaStream | null = null
@@ -42,10 +51,7 @@ const RTC_CONFIG: RTCConfiguration = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:stun.services.mozilla.com:3478' }
+    { urls: 'stun:stun.cloudflare.com:3478' }
   ],
   iceCandidatePoolSize: 10
 }
@@ -76,7 +82,9 @@ export async function loadAudioDevices(): Promise<void> {
     }
 
     if (!isDeviceListenerAdded) {
-      navigator.mediaDevices.addEventListener('devicechange', loadAudioDevices)
+      navigator.mediaDevices.addEventListener('devicechange', () => {
+        loadAudioDevices().catch(() => {})
+      })
       isDeviceListenerAdded = true
     }
   } catch {
@@ -92,6 +100,19 @@ export async function toggleVoiceSettings(): Promise<void> {
   } else {
     stopMicTest()
   }
+}
+
+async function createSilentAudioStream(): Promise<MediaStream> {
+  const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+  const ctx = new AudioCtxClass({ sampleRate: 48000 })
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  gain.gain.value = 0
+  osc.connect(gain)
+  const dst = ctx.createMediaStreamDestination()
+  gain.connect(dst)
+  osc.start()
+  return dst.stream
 }
 
 async function setupDSPChain(): Promise<void> {
@@ -115,7 +136,14 @@ async function setupDSPChain(): Promise<void> {
     (constraints.audio as MediaTrackConstraints).deviceId = { exact: validDeviceId }
   }
 
-  rawMicStream = await navigator.mediaDevices.getUserMedia(constraints)
+  try {
+    rawMicStream = await navigator.mediaDevices.getUserMedia(constraints)
+    voiceState.isListenOnly = false
+  } catch {
+    rawMicStream = await createSilentAudioStream()
+    voiceState.isListenOnly = true
+    voiceState.isMuted = true
+  }
 
   if (audioContext) {
     await audioContext.close().catch(() => {})
@@ -123,7 +151,9 @@ async function setupDSPChain(): Promise<void> {
 
   const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
   audioContext = new AudioCtxClass({ sampleRate: 48000, latencyHint: 'interactive' })
-  await audioContext.resume()
+  if (audioContext.state === 'suspended') {
+    await audioContext.resume().catch(() => {})
+  }
 
   const source = audioContext.createMediaStreamSource(rawMicStream)
   const dest = audioContext.createMediaStreamDestination()
@@ -132,7 +162,7 @@ async function setupDSPChain(): Promise<void> {
   localAnalyser.fftSize = 512
   localAnalyser.smoothingTimeConstant = 0.2
 
-  if (state.settings.voice_noise_suppression) {
+  if (state.settings.voice_noise_suppression && !voiceState.isListenOnly) {
     const subRumbleFilter = audioContext.createBiquadFilter()
     subRumbleFilter.type = 'highpass'
     subRumbleFilter.frequency.value = 85
@@ -180,7 +210,7 @@ async function setupDSPChain(): Promise<void> {
     expanderGainNode.connect(dest)
   } else {
     expanderGainNode = audioContext.createGain()
-    expanderGainNode.gain.value = 1
+    expanderGainNode.gain.value = voiceState.isListenOnly ? 0 : 1
 
     source.connect(localAnalyser)
     source.connect(expanderGainNode)
@@ -266,7 +296,7 @@ export async function startMicTest(): Promise<void> {
         .catch(() => {})
     }
 
-    localDummyAudio.play().catch(() => {})
+    await localDummyAudio.play().catch(() => {})
   } catch {
     showToast(t('Microphone Error'), t('Could not access audio device for testing.'), 'danger')
     stopMicTest()
@@ -303,35 +333,42 @@ export function stopMicTest(): void {
 }
 
 export async function joinVoiceChannel(channelName: string, host = 'wss://kip-backend.noisyfutlor98.workers.dev/ws'): Promise<void> {
-  if (voiceState.isConnected) return
+  if (voiceState.isConnected && voiceState.channelId === channelName) return
+  if (voiceState.isConnected) {
+    leaveVoiceChannel()
+  }
   stopMicTest()
+
+  const normalizedChannel = channelName.trim().toLowerCase()
+  voiceState.activeLobbyCode = normalizedChannel
 
   try {
     await loadAudioDevices()
     await setupDSPChain()
     monitorVoiceActivity()
-    initSignaling(channelName, host)
+    initSignaling(normalizedChannel, host)
 
     voiceState.isConnected = true
-    voiceState.channelId = channelName
-    voiceState.isMuted = false
-    voiceState.isDeafened = false
+    voiceState.channelId = normalizedChannel
+    voiceState.isMuted = voiceState.isListenOnly
 
-    showToast(t('K.I.P. Connect'), t('Joined voice channel: ') + channelName, 'success')
-  } catch (e: unknown) {
-    let errorMsg = t('Could not access audio device.')
-    if (e instanceof Error && e.name === 'NotAllowedError') {
-      errorMsg = 'Microphone access denied by OS permissions.'
+    if (voiceState.isListenOnly) {
+      showToast(t('K.I.P. Connect'), t('Connected to lobby in Listen-Only mode (Microphone offline).'), 'info')
+    } else {
+      showToast(t('K.I.P. Connect'), t('Joined voice channel: ') + normalizedChannel, 'success')
     }
-    showToast(t('Microphone Error'), errorMsg, 'danger')
+  } catch {
+    showToast(t('Lobby Error'), t('Failed to join lobby room.'), 'danger')
   }
 }
 
 export function leaveVoiceChannel(): void {
   voiceState.isConnected = false
   voiceState.channelId = ''
+  voiceState.activeLobbyCode = ''
   voiceState.localSpeaking = false
   voiceState.participants = []
+  voiceState.activeHostAddress = ''
   state.partyInvite = null
 
   if (pingInterval) {
@@ -370,6 +407,7 @@ export function leaveVoiceChannel(): void {
 }
 
 export function toggleMute(): void {
+  if (voiceState.isListenOnly) return
   if (!localStream) return
   voiceState.isMuted = !voiceState.isMuted
 
@@ -401,6 +439,18 @@ export function toggleDeafen(): void {
   }
 }
 
+export function broadcastLobbyEndpoint(tunnelUrl: string): void {
+  voiceState.activeHostAddress = tunnelUrl
+  if (signalingSocket?.readyState === WebSocket.OPEN) {
+    signalingSocket.send(
+      JSON.stringify({
+        type: 'lobby-sync',
+        tunnelUrl
+      })
+    )
+  }
+}
+
 function initSignaling(channelId: string, host: string): void {
   const userName = state.settings.has_kip_token
     ? state.settings.kip_username
@@ -429,6 +479,10 @@ function initSignaling(channelId: string, host: string): void {
         signalingSocket.send(JSON.stringify({ type: 'ping' }))
       }
     }, 12000)
+
+    if (voiceState.activeHostAddress) {
+      broadcastLobbyEndpoint(voiceState.activeHostAddress)
+    }
   }
 
   signalingSocket.onclose = () => {
@@ -444,6 +498,15 @@ function initSignaling(channelId: string, host: string): void {
       const data = JSON.parse(message.data)
       if (data.type === 'user-joined') {
         createPeerConnection(data.userId, data.userName, Boolean(data.initiator))
+        if (voiceState.activeHostAddress && signalingSocket?.readyState === WebSocket.OPEN) {
+          signalingSocket.send(
+            JSON.stringify({
+              type: 'lobby-sync',
+              target: data.userId,
+              tunnelUrl: voiceState.activeHostAddress
+            })
+          )
+        }
       } else if (data.type === 'user-left') {
         destroyPeer(data.userId)
       } else if (data.type === 'offer') {
@@ -459,10 +522,8 @@ function initSignaling(channelId: string, host: string): void {
           if (peer.ignoreOffer) {
             return
           }
+          peer.isSettingRemoteAnswerPending = false
           try {
-            if (offerCollision) {
-              await pc.setLocalDescription({ type: 'rollback' })
-            }
             await pc.setRemoteDescription(new RTCSessionDescription(data.sdp || data.offer))
             await pc.setLocalDescription()
             if (signalingSocket?.readyState === WebSocket.OPEN) {
@@ -486,6 +547,7 @@ function initSignaling(channelId: string, host: string): void {
         const peer = peers[data.userId]
         if (peer && peer.pc) {
           try {
+            peer.isSettingRemoteAnswerPending = false
             await peer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp || data.answer))
             for (const cand of peer.pendingCandidates) {
               await peer.pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {})
@@ -508,11 +570,16 @@ function initSignaling(channelId: string, host: string): void {
           }
         }
       } else if (data.type === 'mute-state') {
-        const p = voiceState.participants.find((part) => part.id === data.userId)
+        const p = voiceState.participants.find((part) => part.id === data.userId || part.name === data.userName)
         if (p) p.muted = data.muted
       } else if (data.type === 'deafen-state') {
-        const p = voiceState.participants.find((part) => part.id === data.userId)
+        const p = voiceState.participants.find((part) => part.id === data.userId || part.name === data.userName)
         if (p) p.deafened = data.deafened
+      } else if (data.type === 'lobby-sync') {
+        if (data.tunnelUrl) {
+          voiceState.activeHostAddress = data.tunnelUrl
+          showToast(t('Lobby Synchronized'), `Minecraft Host IP received: ${data.tunnelUrl}`, 'success')
+        }
       } else if (data.type === 'party-invite') {
         state.partyInvite = {
           senderId: data.userId,
@@ -551,13 +618,15 @@ function createPeerConnection(peerId: string, peerName: string, isInitiator: boo
 
   peers[peerId] = peer
 
-  voiceState.participants.push({
-    id: peerId,
-    name: peerName,
-    speaking: false,
-    muted: false,
-    deafened: false
-  })
+  if (!voiceState.participants.some((p) => p.id === peerId)) {
+    voiceState.participants.push({
+      id: peerId,
+      name: peerName,
+      speaking: false,
+      muted: false,
+      deafened: false
+    })
+  }
 
   if (localStream) {
     localStream.getTracks().forEach((track) => {
@@ -598,14 +667,8 @@ function createPeerConnection(peerId: string, peerName: string, isInitiator: boo
   }
 
   pc.oniceconnectionstatechange = () => {
-    if (
-      pc.iceConnectionState === 'failed' ||
-      pc.iceConnectionState === 'closed' ||
-      pc.iceConnectionState === 'disconnected'
-    ) {
-      if (pc.iceConnectionState === 'failed') {
-        pc.restartIce()
-      }
+    if (pc.iceConnectionState === 'failed') {
+      pc.restartIce()
     }
   }
 
@@ -644,7 +707,9 @@ function createPeerConnection(peerId: string, peerName: string, isInitiator: boo
 
     const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
     const peerAudioCtx = new AudioCtxClass()
-    peerAudioCtx.resume().catch(() => {})
+    if (peerAudioCtx.state === 'suspended') {
+      peerAudioCtx.resume().catch(() => {})
+    }
 
     const source = peerAudioCtx.createMediaStreamSource(stream)
     const analyser = peerAudioCtx.createAnalyser()
@@ -695,7 +760,7 @@ function monitorVoiceActivity(): void {
 
     const now = Date.now()
 
-    if (localAnalyser) {
+    if (localAnalyser && !voiceState.isListenOnly) {
       const data = new Uint8Array(localAnalyser.frequencyBinCount)
       localAnalyser.getByteFrequencyData(data)
 
@@ -762,18 +827,23 @@ function monitorVoiceActivity(): void {
 }
 
 export async function inviteToParty(targetUserId: string): Promise<void> {
-  if (signalingSocket?.readyState !== WebSocket.OPEN) return
+  if (signalingSocket?.readyState !== WebSocket.OPEN) {
+    await joinVoiceChannel(voiceState.activeLobbyCode || 'kip-lobby')
+  }
+
   try {
     const data = await bridge.partyInvitePrepare()
-    signalingSocket.send(
-      JSON.stringify({
-        type: 'party-invite',
-        target: targetUserId,
-        mods: data.mods,
-        tunnelUrl: data.tunnel_url
-      })
-    )
-    showToast(t('K.I.P. Party'), t('Invite sent!'), 'success')
+    if (signalingSocket?.readyState === WebSocket.OPEN) {
+      signalingSocket.send(
+        JSON.stringify({
+          type: 'party-invite',
+          target: targetUserId,
+          mods: data.mods,
+          tunnelUrl: data.tunnel_url || voiceState.activeHostAddress
+        })
+      )
+      showToast(t('K.I.P. Party'), t('Invite sent to: ') + targetUserId, 'success')
+    }
   } catch {
     showToast(t('Error'), t('Failed to prepare party invite.'), 'danger')
   }
@@ -811,8 +881,8 @@ export async function acceptPartyInvite(): Promise<void> {
   }
 
   setTimeout(() => {
-    joinVoiceChannel('kip-party', host)
-  }, 1000)
+    joinVoiceChannel('kip-party', host).catch(() => {})
+  }, 500)
 }
 
 export function declinePartyInvite(): void {

@@ -1,242 +1,69 @@
-<template>
-  <div class="h-full flex flex-col min-h-0 relative">
-    <div class="flex justify-between items-end mb-8 shrink-0 stagger-1">
-      <div>
-        <h2 class="text-3xl font-extrabold mb-1">{{ t('Gallery') }}</h2>
-        <p class="text-white/50 text-sm">{{ t('View and compress your latest screenshots.') }}</p>
-      </div>
-      <div class="flex gap-3">
-        <button @click="openFolder" class="kip-btn-ghost px-5 py-2.5">
-          <FolderOpen class="w-4 h-4 text-indigo-400" />
-          {{ t('Open Folder') }}
-        </button>
-        <button @click="compressMedia" :disabled="isCompressing" class="kip-btn-primary px-6 py-2.5 bg-indigo-500 hover:bg-indigo-400 border border-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.3)]">
-          <Loader v-if="isCompressing" class="w-4 h-4 animate-spin" />
-          <Minimize v-else class="w-4 h-4" />
-          {{ isCompressing ? t('Compressing...') : t('Compress to JPG') }}
-        </button>
-      </div>
-    </div>
-
-    <div class="grid grid-cols-3 gap-5 flex-1 overflow-y-auto custom-scroll pr-2 pb-10 stagger-2 min-h-0" @scroll="handleScroll">
-      <div v-if="isLoading && offset === 0" class="col-span-3 text-center text-white/30 py-10 flex justify-center">
-        <Loader class="w-8 h-8 animate-spin text-indigo-500" />
-      </div>
-      <div v-else-if="mediaList.length === 0" class="col-span-3 text-center text-white/30 py-20 flex flex-col items-center gap-4">
-        <ImageOff class="w-12 h-12 opacity-50" />
-        <span class="font-medium">{{ t('No screenshots found.') }}</span>
-      </div>
-
-      <div v-for="m in mediaList" :key="m.filename" class="kip-card p-0 overflow-hidden group cursor-pointer border-white/5 hover:border-indigo-500/30 transition-all duration-500" @click="openLightbox(m)">
-        <div class="h-48 overflow-hidden relative bg-black/50">
-          <img :src="m.thumbnail" class="w-full h-full object-cover group-hover:scale-110 transition duration-700 opacity-80 group-hover:opacity-100">
-          <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-          <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 scale-90 group-hover:scale-100">
-            <div class="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 shadow-[0_0_15px_rgba(0,0,0,0.5)]">
-              <Maximize class="w-5 h-5 text-white" />
-            </div>
-          </div>
-          <div class="absolute top-3 right-3 flex gap-2">
-            <span :class="m.is_png ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'" class="px-2 py-1 text-[9px] rounded-md font-bold uppercase tracking-wider border">
-              {{ m.is_png ? 'PNG' : 'JPG' }}
-            </span>
-            <span class="px-2 py-1 bg-black/60 border border-white/10 backdrop-blur text-white/80 text-[9px] rounded-md font-bold tracking-wider">
-              {{ m.size }} MB
-            </span>
-          </div>
-        </div>
-        <div class="p-4 bg-black/40 border-t border-white/5 flex items-center justify-between">
-          <p class="text-xs text-white/70 truncate font-medium">{{ m.filename }}</p>
-        </div>
-      </div>
-
-      <div v-if="isLoadingMore" class="col-span-3 flex justify-center py-6">
-        <Loader class="w-8 h-8 animate-spin text-indigo-500" />
-      </div>
-    </div>
-
-    <transition name="fade">
-      <div v-if="lightbox.isOpen" class="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[300] flex flex-col items-center justify-center p-6 cursor-default" @click.self="closeLightbox">
-        <div class="w-full flex justify-between items-start shrink-0 mb-4 px-4 pointer-events-none absolute top-6 z-50">
-          <div class="pointer-events-auto kip-card px-6 py-4 flex flex-col gap-1.5 shadow-2xl border-white/10 bg-black/60">
-            <h3 class="font-bold text-sm text-white drop-shadow-md">{{ lightbox.item?.filename }}</h3>
-            <p class="text-[10px] text-white/50 uppercase tracking-widest font-bold">{{ lightbox.item?.size }} MB • {{ lightbox.item?.is_png ? 'PNG' : 'JPG' }}</p>
-          </div>
-          <div class="flex gap-3 pointer-events-auto">
-            <button @click="deleteMedia" class="kip-btn-danger px-4 py-3 shadow-[0_0_15px_rgba(239,68,68,0.3)]">
-              <Trash2 class="w-5 h-5" />
-            </button>
-            <button @click="closeLightbox" class="kip-btn-ghost px-4 py-3 bg-black/40 hover:bg-white/10 border-white/10">
-              <X class="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        <div class="flex-1 w-full flex items-center justify-center relative overflow-hidden" @click.self="closeLightbox">
-          <Loader v-if="lightbox.loading" class="w-12 h-12 animate-spin text-indigo-500 absolute" />
-          <img v-if="lightbox.fullImage" :src="lightbox.fullImage" class="max-w-[95vw] max-h-[85vh] object-contain shadow-[0_0_50px_rgba(0,0,0,0.8)] rounded-xl border border-white/5" :class="lightbox.loading ? 'opacity-0 scale-95' : 'opacity-100 scale-100 transition-all duration-500 ease-out'">
-        </div>
-      </div>
-    </transition>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { Minimize, ImageOff, Loader, Maximize, X, Trash2, FolderOpen } from 'lucide-vue-next'
-import { t, showToast } from '@/store'
-import { invokeSafe, type GenericActionResult } from '@/bridge'
+import { onMounted } from 'vue'
+import {
+  FolderOpen,
+  Minimize,
+  ImageOff,
+  Loader,
+  Maximize,
+  Trash2,
+  Search,
+  Check,
+  CheckSquare,
+  Sparkles,
+  Camera,
+} from 'lucide-vue-next'
+import { t } from '@/store'
+import type { MediaFormatFilter } from '../types/media'
+import { useMediaManager } from '../composables/useMediaManager'
+import MediaLightboxModal from '../components/media/MediaLightboxModal.vue'
 
-export interface MediaItem {
-  filename: string
-  thumbnail: string
-  size: number
-  is_png: boolean
+const {
+  filteredMedia,
+  isLoading,
+  isLoadingMore,
+  hasMore,
+  activeFormatFilter,
+  searchQuery,
+  selectedFilenames,
+  isCompressing,
+  compressionProgress,
+  isLightboxOpen,
+  activeLightboxItem,
+  fullImageBase64,
+  isFullImageLoading,
+  uncompressedPngSavingsMb,
+  loadMedia,
+  openLightbox,
+  nextImage,
+  prevImage,
+  copyActiveImageToClipboard,
+  deleteSingle,
+  batchDeleteSelected,
+  runLosslessCompression,
+  openNativeFolder,
+} = useMediaManager()
+
+function setFilter(filter: MediaFormatFilter): void {
+  activeFormatFilter.value = filter
+  selectedFilenames.value.clear()
+  loadMedia(true)
 }
 
-interface LightboxState {
-  isOpen: boolean
-  item: MediaItem | null
-  fullImage: string
-  loading: boolean
-}
-
-const mediaList = ref<MediaItem[]>([])
-const isLoading = ref<boolean>(false)
-const isLoadingMore = ref<boolean>(false)
-const isCompressing = ref<boolean>(false)
-const hasMore = ref<boolean>(true)
-const offset = ref<number>(0)
-const limit = 12
-
-const lightbox = ref<LightboxState>({
-  isOpen: false,
-  item: null,
-  fullImage: '',
-  loading: false,
-})
-
-const loadMedia = async (reset = true): Promise<void> => {
-  if (!hasMore.value && !reset) return
-  if (isLoading.value || isLoadingMore.value) return
-
-  if (reset) {
-    isLoading.value = true
-    offset.value = 0
-    mediaList.value = []
-    hasMore.value = true
+function toggleSelect(filename: string): void {
+  if (selectedFilenames.value.has(filename)) {
+    selectedFilenames.value.delete(filename)
   } else {
-    isLoadingMore.value = true
-  }
-
-  try {
-    const data = await invokeSafe<MediaItem[]>('get_media', {
-      offset: offset.value,
-      limit,
-    })
-
-    if (data && data.length > 0) {
-      mediaList.value.push(...data)
-      offset.value += limit
-      if (data.length < limit) {
-        hasMore.value = false
-      }
-    } else {
-      hasMore.value = false
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    showToast(t('Error'), msg || t('Failed to load gallery.'), 'danger')
-  } finally {
-    isLoading.value = false
-    isLoadingMore.value = false
+    selectedFilenames.value.add(filename)
   }
 }
 
-const handleScroll = (e: Event): void => {
+function handleScroll(e: Event): void {
   const el = e.target as HTMLElement
-  if (el.scrollHeight - el.scrollTop <= el.clientHeight + 100) {
+  if (el.scrollHeight - el.scrollTop <= el.clientHeight + 150) {
     if (!isLoadingMore.value && hasMore.value) {
       loadMedia(false)
     }
-  }
-}
-
-const compressMedia = async (): Promise<void> => {
-  if (isCompressing.value) return
-  isCompressing.value = true
-
-  try {
-    const res = await invokeSafe<GenericActionResult>('compress_media')
-    if (res && res.success) {
-      showToast(t('Success'), res.msg, 'success')
-      await loadMedia(true)
-    } else {
-      showToast(t('Error'), res?.msg || t('Failed to compress media.'), 'danger')
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
-  } finally {
-    isCompressing.value = false
-  }
-}
-
-const openFolder = async (): Promise<void> => {
-  try {
-    await invokeSafe<GenericActionResult>('open_media_folder')
-  } catch {
-    showToast(t('Error'), t('Failed to open screenshots folder.'), 'danger')
-  }
-}
-
-const openLightbox = async (item: MediaItem): Promise<void> => {
-  lightbox.value.item = item
-  lightbox.value.isOpen = true
-  lightbox.value.fullImage = ''
-  lightbox.value.loading = true
-
-  try {
-    const b64 = await invokeSafe<string>('get_media_full', {
-      filename: item.filename,
-    })
-
-    if (b64 && b64.length > 0) {
-      lightbox.value.fullImage = b64
-    } else {
-      showToast(t('Error'), t('Failed to load full image.'), 'danger')
-      closeLightbox()
-    }
-  } catch {
-    showToast(t('Error'), t('Network error.'), 'danger')
-    closeLightbox()
-  } finally {
-    lightbox.value.loading = false
-  }
-}
-
-const closeLightbox = (): void => {
-  lightbox.value.isOpen = false
-  lightbox.value.fullImage = ''
-  lightbox.value.item = null
-}
-
-const deleteMedia = async (): Promise<void> => {
-  if (!lightbox.value.item) return
-  const filename = lightbox.value.item.filename
-
-  try {
-    const res = await invokeSafe<GenericActionResult>('delete_media', { filename })
-    if (res && res.success) {
-      showToast(t('Deleted'), res.msg, 'success')
-      mediaList.value = mediaList.value.filter((m) => m.filename !== filename)
-      closeLightbox()
-    } else {
-      showToast(t('Error'), res?.msg || t('Failed to delete media.'), 'danger')
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
   }
 }
 
@@ -244,3 +71,196 @@ onMounted(() => {
   loadMedia(true)
 })
 </script>
+
+<template>
+  <div class="h-full flex flex-col min-h-0 relative select-none">
+    <!-- Top Action Bar -->
+    <header class="flex justify-between items-start mb-6 shrink-0 z-10">
+      <div>
+        <h2 class="text-3xl font-black uppercase tracking-tight text-white flex items-center gap-3">
+          {{ t('Gallery') }}
+        </h2>
+        <p class="text-white/40 text-xs font-mono tracking-wider mt-0.5">Lossless Stream Compression, 4K Lightbox Deck & Instant Clipboard Bridge</p>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button
+          @click="openNativeFolder"
+          class="kip-btn-ghost px-4 py-2.5 text-xs font-bold uppercase tracking-wider flex items-center gap-2"
+        >
+          <FolderOpen class="w-4 h-4 text-indigo-400" />
+          <span>{{ t('Open Folder') }}</span>
+        </button>
+
+        <button
+          @click="runLosslessCompression"
+          :disabled="isCompressing"
+          class="kip-btn-primary px-6 py-2.5 text-xs font-black uppercase tracking-wider bg-indigo-500 hover:bg-indigo-400 text-white shadow-[0_0_20px_rgba(99,102,241,0.3)] flex items-center gap-2"
+        >
+          <Loader v-if="isCompressing" class="w-4 h-4 animate-spin" />
+          <Minimize v-else class="w-4 h-4" />
+          <span>{{ isCompressing ? 'Compressing...' : 'Compress to JPG' }}</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Optimization Banner (If uncompressed PNGs exist) -->
+    <section
+      v-if="Number(uncompressedPngSavingsMb) > 10"
+      class="mb-6 kip-card p-4 border border-indigo-500/30 bg-gradient-to-r from-indigo-950/40 to-black/60 flex items-center justify-between shadow-xl shrink-0"
+    >
+      <div class="flex items-center gap-3">
+        <div class="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+          <Sparkles class="w-4 h-4" />
+        </div>
+        <div>
+          <h4 class="text-xs font-bold text-white uppercase tracking-wider">Disk Storage Optimization Available</h4>
+          <p class="text-[11px] text-white/60 font-mono mt-0.5">
+            You can reclaim approximately ~{{ uncompressedPngSavingsMb }} MB by converting raw PNG screenshots to compressed JPEG.
+          </p>
+        </div>
+      </div>
+
+      <button
+        @click="runLosslessCompression"
+        :disabled="isCompressing"
+        class="kip-btn-ghost px-4 py-2 text-xs font-mono font-bold uppercase text-indigo-300 border-indigo-500/40 hover:bg-indigo-500/10"
+      >
+        Optimize Now
+      </button>
+    </section>
+
+    <!-- Streaming Progress Indicator Bar -->
+    <div v-if="isCompressing" class="mb-6 kip-card p-4 bg-black/60 border border-indigo-500/40 flex flex-col gap-2 shrink-0 shadow-2xl">
+      <div class="flex justify-between text-xs font-mono text-white/70">
+        <span class="truncate">Processing: {{ compressionProgress.currentFile }}</span>
+        <span class="text-indigo-400 font-bold">{{ Math.round(compressionProgress.percent) }}% ({{ compressionProgress.savedMb }} MB saved)</span>
+      </div>
+      <div class="w-full h-1.5 bg-black/80 rounded-full overflow-hidden">
+        <div class="h-full bg-indigo-500 transition-all duration-150" :style="{ width: `${compressionProgress.percent}%` }"></div>
+      </div>
+    </div>
+
+    <!-- Filters & Search Toolbar -->
+    <div class="flex justify-between items-center gap-4 mb-6 shrink-0 z-10">
+      <div class="flex p-1 bg-black/40 rounded-2xl border border-white/10 backdrop-blur-xl">
+        <button
+          v-for="f in (['all', 'png', 'jpg'] as const)"
+          :key="f"
+          @click="setFilter(f)"
+          class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition"
+          :class="activeFormatFilter === f ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'text-white/40 hover:text-white'"
+        >
+          {{ f === 'all' ? 'All Captures' : f === 'png' ? 'Raw PNG' : 'Optimized JPG' }}
+        </button>
+      </div>
+
+      <div class="relative w-64">
+        <Search class="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 w-3.5 h-3.5" />
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="Filter by name or date..."
+          class="kip-input pl-8 py-2 text-xs font-mono"
+        >
+      </div>
+    </div>
+
+    <!-- Media Grid -->
+    <main class="grid grid-cols-3 gap-5 flex-1 overflow-y-auto custom-scroll pr-2 pb-10 min-h-0 z-10" @scroll="handleScroll">
+      <div v-if="isLoading && filteredMedia.length === 0" class="col-span-3 text-center py-24 flex flex-col items-center justify-center">
+        <Loader class="w-10 h-10 animate-spin text-indigo-400 mb-3" />
+        <span class="text-xs font-mono uppercase text-white/40">Scanning screenshot archives and decoding thumbs...</span>
+      </div>
+
+      <div v-else-if="filteredMedia.length === 0" class="col-span-3 text-center py-24 flex flex-col items-center gap-4">
+        <ImageOff class="w-16 h-16 text-white/10" />
+        <span class="text-white/40 font-mono text-xs">{{ searchQuery ? 'No captures matching filter.' : t('No screenshots found.') }}</span>
+      </div>
+
+      <article
+        v-for="item in filteredMedia"
+        :key="item.filename"
+        class="kip-card p-0 overflow-hidden group cursor-pointer border-white/5 hover:border-indigo-500/30 transition-all duration-300 bg-black/40 flex flex-col"
+        @click="openLightbox(item)"
+      >
+        <div class="h-48 overflow-hidden relative bg-black/60">
+          <img
+            :src="item.thumbnail"
+            class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80 group-hover:opacity-100"
+          >
+
+          <!-- Hover Gradient Overlay -->
+          <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+
+          <!-- Selection Checkbox -->
+          <div
+            @click.stop="toggleSelect(item.filename)"
+            class="absolute top-3 left-3 w-5 h-5 rounded-lg border flex items-center justify-center transition z-20"
+            :class="selectedFilenames.has(item.filename) ? 'bg-indigo-500 border-indigo-400 text-white' : 'border-white/30 bg-black/60 opacity-0 group-hover:opacity-100'"
+          >
+            <Check v-if="selectedFilenames.has(item.filename)" class="w-3.5 h-3.5 stroke-[3]" />
+          </div>
+
+          <!-- Format & Size Badges -->
+          <div class="absolute top-3 right-3 flex gap-1.5 z-20">
+            <span
+              class="px-2 py-0.5 text-[8px] rounded-md font-bold uppercase tracking-wider border font-mono"
+              :class="item.isPng ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'"
+            >
+              {{ item.isPng ? 'PNG' : 'JPG' }}
+            </span>
+            <span class="px-2 py-0.5 bg-black/70 border border-white/10 backdrop-blur text-white/80 text-[8px] rounded-md font-bold font-mono">
+              {{ item.sizeMb }} MB
+            </span>
+          </div>
+
+          <!-- Centered Hover Trigger -->
+          <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+            <div class="p-3 bg-black/50 backdrop-blur-md rounded-2xl border border-white/10 shadow-2xl">
+              <Maximize class="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Data -->
+        <footer class="p-3.5 bg-black/40 border-t border-white/5 flex items-center justify-between text-xs">
+          <p class="text-white/70 truncate font-mono text-[11px] flex-1 pr-2">{{ item.filename }}</p>
+          <span class="text-white/30 font-mono text-[10px] shrink-0">{{ item.width }}x{{ item.height }}</span>
+        </footer>
+      </article>
+
+      <div v-if="isLoadingMore" class="col-span-3 flex justify-center py-6">
+        <Loader class="w-8 h-8 animate-spin text-indigo-400" />
+      </div>
+    </main>
+
+    <!-- Floating Batch Selection Deck -->
+    <div
+      v-if="selectedFilenames.size > 0"
+      class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/85 backdrop-blur-2xl border border-indigo-500/40 px-6 py-3 rounded-2xl flex items-center gap-4 z-40 shadow-2xl"
+    >
+      <span class="text-xs font-mono font-bold text-white">{{ selectedFilenames.size }} selected</span>
+      <div class="w-px h-4 bg-white/20"></div>
+      <button @click="batchDeleteSelected" class="kip-btn-danger px-4 py-1.5 text-xs uppercase font-bold">
+        <Trash2 class="w-3.5 h-3.5" />
+        <span>Delete Selected</span>
+      </button>
+      <button @click="selectedFilenames.clear()" class="text-white/40 hover:text-white text-xs font-mono">
+        Cancel
+      </button>
+    </div>
+
+    <!-- Lightbox Pro Subcomponent -->
+    <MediaLightboxModal
+      v-model="isLightboxOpen"
+      :item="activeLightboxItem"
+      :full-image="fullImageBase64"
+      :loading="isFullImageLoading"
+      @next="nextImage"
+      @prev="prevImage"
+      @delete="deleteSingle($event)"
+      @copy="copyActiveImageToClipboard"
+    />
+  </div>
+</template>

@@ -148,6 +148,7 @@ impl ToolManager {
         0.0
     }
 
+    #[allow(dead_code)]
     pub fn analyze_crash_log(log_text: &str) -> Vec<String> {
         let mut hints = Vec::new();
         let text_lower = log_text.to_lowercase();

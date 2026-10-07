@@ -1,22 +1,30 @@
 [package]
 name = "kip_hub"
-version = "1.7.0"
+version = "2.0.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["K.I.P. Studio"]
 description = "High-performance modular Minecraft management suite and client engine."
 
+[lib]
+name = "kip_hub_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "kip_hub"
+path = "src/main.rs"
+
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.2", features = ["full"] }
 reqwest = { version = "0.13.5", features = ["json"] }
 dirs = "7.0.0"
 keyring = "4.2.0"
 machine-uid = "0.6.0"
 base64 = "0.23.1"
-lazy_static = "1.5.0"
+lazy_static = "1.5.1"
 parking_lot = "0.12.5"
 log = "0.4.34"
 simplelog = "0.12.2"
@@ -36,11 +44,12 @@ rdev = "0.5.3"
 tokio-tungstenite = "0.30.0"
 futures-util = "0.3.34"
 url = "2.5.8"
-uuid = { version = "1.26.1", features = ["v4"] }
+uuid = { version = "1.27.0", features = ["v4"] }
 urlencoding = "2.1.3"
-tauri = { version = "2.12.0", features = [] }
-tauri-plugin-updater = "2"
+tauri = { version = "2.12.1", features = [] }
+tauri-plugin-updater = "2.13.1"
 open = "5.4.4"
+thiserror = "2.0.21"
 
 [build-dependencies]
-tauri-build = { version = "2.7.0", features = [] }
+tauri-build = { version = "2.7.1", features = [] }

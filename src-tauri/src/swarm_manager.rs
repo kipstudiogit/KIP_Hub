@@ -10,6 +10,7 @@ use sha1::{Sha1, Digest};
 use walkdir::WalkDir;
 
 struct ActiveSeed {
+    #[allow(dead_code)]
     name: String,
     stop_signal: Arc<AtomicBool>,
     uploaded_bytes: Arc<AtomicU64>,

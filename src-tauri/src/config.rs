@@ -7,7 +7,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use sha2::{Sha256, Digest};
 
 pub const APP_NAME: &str = "K.I.P.";
-pub const APP_VERSION: &str = "1.7.0";
+pub const APP_VERSION: &str = "2.0.0";
 pub const CLOUDFLARE_URL: &str = "https://kip-backend.noisyfutlor98.workers.dev";
 pub const DISCORD_CLIENT_ID: &str = "1546169959799984301";
 

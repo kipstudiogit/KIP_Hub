@@ -25,6 +25,7 @@ export interface SettingsState {
   autostart: boolean
   safe_mode: boolean
   low_graphics: boolean
+  mica: boolean
   close_on_launch: boolean
   ram_allocation: number
   jvm_gc: string

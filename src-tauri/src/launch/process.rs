@@ -38,25 +38,40 @@ impl ProcessSupervisor {
             }
         }
 
-        let base_mc_version = version_data.get("jar")
-            .and_then(|v| v.as_str())
-            .or_else(|| version_data.get("inheritsFrom").and_then(|v| v.as_str()))
-            .unwrap_or(vanilla_version);
+        let is_neoforge = launch_version.to_lowercase().contains("neoforge")
+            || version_data["mainClass"].as_str().map_or(false, |m| m.contains("neoforge"));
 
-        let clean_base_version = base_mc_version.split('-').next().unwrap_or(base_mc_version);
-        let mut candidate_jars = Vec::new();
-        candidate_jars.push(mc_dir.join("versions").join(clean_base_version).join(format!("{}.jar", clean_base_version)));
-        candidate_jars.push(mc_dir.join("versions").join(vanilla_version).join(format!("{}.jar", vanilla_version)));
-        if launch_version != clean_base_version && launch_version != vanilla_version {
-            candidate_jars.push(mc_dir.join("versions").join(launch_version).join(format!("{}.jar", launch_version)));
-        }
+        let is_modern_forge = (launch_version.to_lowercase().contains("forge")
+            && !launch_version.to_lowercase().contains("fabric")
+            && !launch_version.to_lowercase().contains("quilt"))
+            && (vanilla_version.starts_with("1.20")
+                || vanilla_version.starts_with("1.21")
+                || vanilla_version.starts_with("2"));
 
-        for c_jar in candidate_jars {
-            if c_jar.exists() && c_jar.metadata().map(|m| m.len() > 1000).unwrap_or(false) {
-                let p = c_jar.to_string_lossy().to_string();
-                if !cp_entries.contains(&p) {
-                    cp_entries.push(p);
-                    break;
+        let should_skip_main_jar = is_neoforge || is_modern_forge;
+
+        if !should_skip_main_jar {
+            let base_mc_version = version_data.get("jar")
+                .and_then(|v| v.as_str())
+                .or_else(|| version_data.get("inheritsFrom").and_then(|v| v.as_str()))
+                .unwrap_or(vanilla_version);
+
+            let clean_base_version = base_mc_version.split('-').next().unwrap_or(base_mc_version);
+            let mut candidate_jars = Vec::new();
+            candidate_jars.push(mc_dir.join("versions").join(vanilla_version).join(format!("{}.jar", vanilla_version)));
+            candidate_jars.push(mc_dir.join("versions").join(clean_base_version).join(format!("{}.jar", clean_base_version)));
+            candidate_jars.push(mc_dir.join("versions").join(base_mc_version).join(format!("{}.jar", base_mc_version)));
+            if launch_version != clean_base_version && launch_version != vanilla_version {
+                candidate_jars.push(mc_dir.join("versions").join(launch_version).join(format!("{}.jar", launch_version)));
+            }
+
+            for c_jar in candidate_jars {
+                if c_jar.exists() && c_jar.metadata().map(|m| m.len() > 1000).unwrap_or(false) {
+                    let p = c_jar.to_string_lossy().to_string();
+                    if !cp_entries.contains(&p) {
+                        cp_entries.push(p);
+                        break;
+                    }
                 }
             }
         }
@@ -130,6 +145,11 @@ impl ProcessSupervisor {
         if java_major < 24 && arg.contains("UseCompactObjectHeaders") {
             return false;
         }
+
+        if !cfg!(target_os = "linux") && (arg.contains("CRaC") || arg.contains("CRaCCheckpoint") || arg.contains("CRaCRestore")) {
+            return false;
+        }
+
         true
     }
 

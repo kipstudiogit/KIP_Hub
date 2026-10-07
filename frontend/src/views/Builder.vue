@@ -1,133 +1,118 @@
-<template>
-  <div class="h-full flex flex-col min-h-0 relative select-none">
-    <div class="mb-8 shrink-0 stagger-1">
-      <h2 class="text-3xl font-extrabold mb-1 flex items-center gap-3">
-        <Wand2 class="text-indigo-400 w-8 h-8" /> {{ t('Auto-Builder') }}
-      </h2>
-      <p class="text-white/50 text-sm">{{ t('Describe your dream modpack and let AI build it. Foundations and libraries are added automatically.') }}</p>
-    </div>
-
-    <div class="grid grid-cols-3 gap-6 flex-1 min-h-0 stagger-2">
-      <div class="col-span-2 kip-card p-8 flex flex-col relative h-full group hover:border-indigo-500/30 transition-colors duration-500">
-        <div class="absolute inset-0 overflow-hidden rounded-3xl pointer-events-none">
-          <div class="absolute -top-32 -left-32 w-96 h-96 bg-indigo-600/10 blur-[100px] rounded-full transition-all duration-700 group-hover:bg-indigo-600/20"></div>
-        </div>
-
-        <div class="flex gap-4 mb-6 shrink-0 relative z-30">
-          <div class="relative flex-1 custom-dropdown">
-            <div @click="activeDropdown = activeDropdown === 'loader' ? null : 'loader'" class="kip-input cursor-pointer flex justify-between items-center hover:bg-black/60 transition" :class="{'border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.2)]': activeDropdown === 'loader'}">
-              <span class="font-bold text-sm uppercase tracking-wider">{{ builderData.loader }}</span>
-              <ChevronDown class="w-4 h-4 text-white/50 transition-transform" :class="{'rotate-180': activeDropdown === 'loader'}" />
-            </div>
-            <transition name="fade">
-              <div v-if="activeDropdown === 'loader'" class="absolute top-full left-0 w-full mt-2 bg-[#121214]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden py-2 z-50">
-                <div v-for="l in (['fabric', 'forge', 'neoforge', 'quilt'] as const)" :key="l" @click="builderData.loader = l; activeDropdown = null" class="px-5 py-3 hover:bg-white/5 cursor-pointer transition font-bold text-sm uppercase tracking-wider" :class="builderData.loader === l ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/70'">
-                  {{ l }}
-                </div>
-              </div>
-            </transition>
-          </div>
-
-          <div class="relative flex-1 custom-dropdown">
-            <div @click="activeDropdown = activeDropdown === 'version' ? null : 'version'" class="kip-input cursor-pointer flex justify-between items-center hover:bg-black/60 transition" :class="{'border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.2)]': activeDropdown === 'version'}">
-              <span class="font-bold text-sm">{{ builderData.mc_version || t('Select Version') }}</span>
-              <ChevronDown class="w-4 h-4 text-white/50 transition-transform" :class="{'rotate-180': activeDropdown === 'version'}" />
-            </div>
-            <transition name="fade">
-              <div v-if="activeDropdown === 'version'" class="absolute top-full left-0 w-full mt-2 bg-[#121214]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden py-2 z-50 max-h-60 overflow-y-auto custom-scroll">
-                <div v-for="v in state.mcVersions" :key="v" @click="builderData.mc_version = v; activeDropdown = null" class="px-5 py-3 hover:bg-white/5 cursor-pointer transition font-bold text-sm" :class="builderData.mc_version === v ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/70'">
-                  {{ v }}
-                </div>
-              </div>
-            </transition>
-          </div>
-        </div>
-
-        <textarea v-model="builderData.prompt" :placeholder="t('E.g., I want a medieval RPG modpack with dragons, deep dungeons, magic spells, and beautiful world generation.')" class="kip-input flex-1 resize-none custom-scroll relative z-10 mb-6 transition shadow-inner leading-relaxed text-sm p-6"></textarea>
-
-        <div v-if="builderData.isBuilding" class="mb-6 shrink-0 relative z-10 bg-black/60 backdrop-blur border border-indigo-500/30 rounded-2xl p-5 shadow-[0_0_20px_rgba(99,102,241,0.1)]">
-          <div class="flex justify-between items-center mb-3">
-            <span class="text-xs font-bold text-indigo-400 animate-pulse flex items-center gap-2 uppercase tracking-wider">
-              <Cpu class="w-4 h-4" /> {{ builderData.status }}
-            </span>
-            <span class="text-xs font-mono text-white/70 bg-white/10 px-2 py-1 rounded">{{ Math.round(builderData.progress) }}%</span>
-          </div>
-          <div class="w-full h-1.5 bg-black/50 border border-white/5 rounded-full overflow-hidden shadow-inner">
-            <div class="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-300 shadow-[0_0_10px_rgba(99,102,241,0.8)]" :style="{ width: builderData.progress + '%' }"></div>
-          </div>
-        </div>
-
-        <button @click="generateAutoBuild" :disabled="builderData.isBuilding || !builderData.prompt.trim()" class="kip-btn-primary py-5 text-lg w-full relative z-10">
-          <span v-if="!builderData.isBuilding" class="flex items-center justify-center gap-2"><Sparkles class="w-6 h-6" /> {{ t('Generate Modpack') }}</span>
-          <span v-else class="flex items-center justify-center gap-2"><Loader class="w-6 h-6 animate-spin" /> {{ t('Synthesizing...') }}</span>
-        </button>
-      </div>
-
-      <div class="col-span-1 flex flex-col gap-6 h-full stagger-3">
-        <div class="kip-card p-8 relative overflow-hidden group hover:border-emerald-500/30 transition duration-500">
-          <div class="absolute -right-20 -bottom-20 w-64 h-64 bg-emerald-500/10 blur-[100px] rounded-full pointer-events-none group-hover:bg-emerald-500/20 transition-all duration-500"></div>
-          <h3 class="font-extrabold text-xl text-emerald-400 mb-6 flex items-center gap-3 relative z-10">
-            <div class="p-2 bg-emerald-500/10 rounded-xl border border-emerald-500/20"><Keyboard class="w-5 h-5" /></div>
-            {{ t('Auto-Keybinds') }}
-          </h3>
-          <p class="text-sm text-white/60 mb-8 relative z-10 leading-relaxed font-medium">{{ t('Resolves button conflicts in options.txt automatically by remapping duplicates to free keys (Numpad, Brackets, etc).') }}</p>
-          <button @click="resolveKeybinds" :disabled="isResolvingKeybinds" class="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] rounded-xl font-extrabold transition text-sm flex items-center justify-center gap-2 relative z-10 disabled:opacity-50">
-            <Loader v-if="isResolvingKeybinds" class="w-5 h-5 animate-spin" />
-            <Wrench v-else class="w-5 h-5" />
-            {{ isResolvingKeybinds ? t('Resolving...') : t('Resolve Conflicts') }}
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { Wand2, Cpu, Sparkles, Loader, Keyboard, ChevronDown, Wrench } from 'lucide-vue-next'
-import { state, t, showToast } from '@/store'
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import {
-  bridge,
-  invokeSafe,
-  type AutoBuildResult,
-  type KeybindResolveResult,
-  type StoreDetailsResponseDto,
-  type StoreItemFileDto,
-} from '@/bridge'
-
-type SupportedLoader = 'fabric' | 'forge' | 'neoforge' | 'quilt'
-
-interface BuilderFormState {
-  prompt: string
-  mc_version: string
-  loader: SupportedLoader
-  isBuilding: boolean
-  status: string
-  progress: number
-}
+  Wand2,
+  Sparkles,
+  Loader,
+  ChevronDown,
+  Wrench,
+  CheckCircle,
+  Terminal,
+  ShieldCheck,
+  Zap,
+  Swords,
+  Cog,
+  Eye,
+  Flame,
+  Compass,
+  AlertTriangle,
+  Play,
+  RotateCcw,
+} from 'lucide-vue-next'
+import { state, t, showToast } from '@/store'
+import { useAutoBuilder } from '../composables/useAutoBuilder'
+import type { SynthPreset } from '../types/builder'
 
 const activeDropdown = ref<'loader' | 'version' | null>(null)
-const isResolvingKeybinds = ref<boolean>(false)
+const logContainer = ref<HTMLElement | null>(null)
 
-const builderData = ref<BuilderFormState>({
+const builderForm = ref({
   prompt: '',
-  mc_version: '',
+  mcVersion: '26.3',
   loader: 'fabric',
-  isBuilding: false,
-  status: '',
-  progress: 0,
+  maxMods: 25,
+  includePerformance: true,
+  resolveKeybindsAfter: true,
 })
 
-const closeDropdowns = (e: MouseEvent): void => {
-  const target = e.target as HTMLElement | null
-  if (!target || !target.closest('.custom-dropdown')) {
-    activeDropdown.value = null
-  }
+const {
+  isBuilding,
+  isResolvingKeybinds,
+  terminalLogs,
+  currentProgress,
+  lastBuildResult,
+  keybindReport,
+  startBuild,
+  resolveKeybinds,
+} = useAutoBuilder()
+
+const presets: SynthPreset[] = [
+  {
+    id: 'rpg_dragons',
+    name: 'Medieval RPG & Dragons',
+    desc: 'Deep dungeons, boss fights, mythical creatures, questlines and magic lore.',
+    icon: Swords,
+    loader: 'fabric',
+    maxMods: 30,
+    prompt: 'I want an immersive medieval fantasy RPG modpack with dragons, sprawling underground dungeons, bosses, custom loot, and atmospheric world generation.',
+  },
+  {
+    id: 'tech_automation',
+    name: 'Industrial Automation',
+    desc: 'Complex logistics, power networks, pipes, machines and factory setups.',
+    icon: Cog,
+    loader: 'neoforge',
+    maxMods: 35,
+    prompt: 'A comprehensive modern technical modpack with machinery, electrical grids, automated farming, item logistics, and ore processing pipelines.',
+  },
+  {
+    id: 'vanilla_ultra_fps',
+    name: 'Vanilla+ Visuals & 300 FPS',
+    desc: 'Maximum optimization, fluid physics, audio overhaul and shader pipelines.',
+    icon: Eye,
+    loader: 'fabric',
+    maxMods: 18,
+    prompt: 'Essential vanilla enhancement pack focused on achieving 300+ FPS, beautiful shaders support, ambient dynamic sounds, appleskin, and smooth camera physics.',
+  },
+  {
+    id: 'arcane_magic',
+    name: 'Arcane Sorcery & Spells',
+    desc: 'Spell crafting, celestial altars, wizard towers and ancient artifacts.',
+    icon: Sparkles,
+    loader: 'fabric',
+    maxMods: 25,
+    prompt: 'An enchanting magic modpack featuring custom spellcraft, wizard robes, celestial rituals, magical artifacts, and dangerous arcane dimensions.',
+  },
+  {
+    id: 'eldritch_horror',
+    name: 'Eldritch Horror & Hardcore',
+    desc: 'Terrifying ambient monsters, sanity meters, pitch-black caves and dread.',
+    icon: Flame,
+    loader: 'forge',
+    maxMods: 22,
+    prompt: 'A dark, psychological horror survival modpack featuring horrifying stalker entities, sanity mechanics, realistic body damage, and unnerving cave ambiance.',
+  },
+  {
+    id: 'dimension_voyager',
+    name: 'Dimensional Exploration',
+    desc: 'New planets, twilight dimensions, space rockets and endless frontiers.',
+    icon: Compass,
+    loader: 'fabric',
+    maxMods: 28,
+    prompt: 'An exploration-heavy modpack with unique dimensional portals, alien planets, custom biomes, waystones, and glider flight systems.',
+  },
+]
+
+function applyPreset(preset: SynthPreset): void {
+  builderForm.value.prompt = preset.prompt
+  builderForm.value.loader = preset.loader
+  builderForm.value.maxMods = preset.maxMods
+  showToast(t('Preset Applied'), preset.name, 'info')
 }
 
-const generateAutoBuild = async (): Promise<void> => {
-  const cleanPrompt = builderData.value.prompt.trim()
-  if (!cleanPrompt || !builderData.value.mc_version) return
+async function handleStartSynthesis(): Promise<void> {
+  const cleanPrompt = builderForm.value.prompt.trim()
+  if (!cleanPrompt) return
 
   if (
     !state.settings.ai_api_key &&
@@ -135,134 +120,284 @@ const generateAutoBuild = async (): Promise<void> => {
     !state.settings.anthropic_api_key &&
     state.settings.ai_provider !== 'ollama'
   ) {
-    showToast(t('Error'), t('AI API Key is required. Set it in Settings.'), 'danger')
+    showToast(t('Error'), 'AI API Key is required in Settings to synthesize modpacks.', 'danger')
     return
   }
 
-  builderData.value.isBuilding = true
-  builderData.value.progress = 5
-  builderData.value.status = t('Consulting Neural Core...')
+  await startBuild({
+    prompt: cleanPrompt,
+    mcVersion: builderForm.value.mcVersion,
+    loader: builderForm.value.loader,
+    maxMods: builderForm.value.maxMods,
+    includePerformance: builderForm.value.includePerformance,
+    resolveKeybindsAfter: builderForm.value.resolveKeybindsAfter,
+  })
 
-  try {
-    const res: AutoBuildResult = await bridge.generateAutoBuild(
-      cleanPrompt,
-      builderData.value.mc_version,
-      builderData.value.loader
-    )
-
-    if (res && res.success) {
-      const rawSlugs = [...(res.foundation || []), ...(res.mods || [])]
-      const allSlugs = Array.from(new Set(rawSlugs))
-        .map((s) => (typeof s === 'string' ? s.trim().toLowerCase() : ''))
-        .filter((s) => s.length > 0)
-
-      let successCount = 0
-
-      for (let i = 0; i < allSlugs.length; i++) {
-        const slug = allSlugs[i]
-        if (!slug) continue
-
-        builderData.value.status = `${t('Resolving')} ${slug}... (${i + 1}/${allSlugs.length})`
-        builderData.value.progress = 10 + (i / allSlugs.length) * 80
-
-        try {
-          const versions = await invokeSafe<StoreDetailsResponseDto>('get_store_full_details', {
-            provider: 'modrinth',
-            projectId: slug,
-            loader: builderData.value.loader,
-            gameVersion: builderData.value.mc_version,
-          })
-
-          if (versions && versions.success && versions.versions && versions.versions.length > 0) {
-            const targetVer = versions.versions[0]
-            if (targetVer && targetVer.files && targetVer.files.length > 0) {
-              const file = targetVer.files.find((f: StoreItemFileDto) => f.primary) || targetVer.files[0]
-              if (file) {
-                builderData.value.status = `${t('Downloading')} ${file.filename}...`
-                await bridge.downloadSpecificFile(
-                  'modrinth',
-                  slug,
-                  targetVer.id,
-                  file.url,
-                  file.filename,
-                  'mod',
-                  builderData.value.loader,
-                  builderData.value.mc_version
-                )
-                successCount++
-              }
-            }
-          }
-        } catch {
-        }
-      }
-
-      builderData.value.progress = 100
-      builderData.value.status = t('Finalizing Modpack...')
-      showToast(
-        t('Build Complete'),
-        `${t('Successfully integrated')} ${successCount} ${t('core modules.')}`,
-        'success'
-      )
-    } else {
-      showToast(t('Build Failed'), t('AI generation failed.'), 'danger')
+  nextTick(() => {
+    if (logContainer.value) {
+      logContainer.value.scrollTop = logContainer.value.scrollHeight
     }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
-  } finally {
-    setTimeout(() => {
-      builderData.value.isBuilding = false
-      builderData.value.progress = 0
-      builderData.value.status = ''
-    }, 1000)
-  }
+  })
 }
 
-const resolveKeybinds = async (): Promise<void> => {
-  if (isResolvingKeybinds.value) return
-  isResolvingKeybinds.value = true
-
-  try {
-    const res: KeybindResolveResult = await bridge.resolveKeybinds()
-    if (res && res.success) {
-      if (res.changes > 0) {
-        showToast(
-          t('Resolved'),
-          `${t('Fixed')} ${res.changes} ${t('keybind conflicts.')}`,
-          'success'
-        )
-      } else {
-        showToast(t('Clean'), t('No keybind conflicts detected.'), 'success')
-      }
-    } else {
-      showToast(t('Error'), t('Failed to resolve keybinds.'), 'danger')
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    showToast(t('Error'), msg || t('Backend communication failed.'), 'danger')
-  } finally {
-    isResolvingKeybinds.value = false
-  }
+function launchSynthesizedInstance(): void {
+  state.currentView = 'launcher'
 }
 
-onMounted(async () => {
+function closeDropdowns(): void {
+  activeDropdown.value = null
+}
+
+onMounted(() => {
   window.addEventListener('click', closeDropdowns)
-
-  if (state.mcVersions.length === 0) {
-    try {
-      state.mcVersions = await bridge.getMcVersions()
-      if (state.mcVersions.length > 0 && !state.mcVersions[0]?.includes('Error')) {
-        builderData.value.mc_version = state.mcVersions[0] || ''
-      }
-    } catch {
-    }
-  } else if (!builderData.value.mc_version && state.mcVersions.length > 0) {
-    builderData.value.mc_version = state.mcVersions[0] || ''
-  }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('click', closeDropdowns)
 })
 </script>
+
+<template>
+  <div class="h-full flex flex-col min-h-0 select-none relative overflow-y-auto custom-scroll pr-2 pb-12" @click="closeDropdowns">
+    <!-- Header Matrix -->
+    <header class="flex justify-between items-start mb-6 shrink-0 z-10">
+      <div>
+        <h2 class="text-3xl font-black uppercase tracking-tight text-white flex items-center gap-3">
+          <Wand2 class="text-indigo-400 w-8 h-8" />
+          <span>{{ t('Auto-Builder') }}</span>
+        </h2>
+        <p class="text-white/40 text-xs font-mono tracking-wider mt-0.5">Autonomous Neural Modpack Compiler, Dependency Graph Resolver & Keybind Balancer</p>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button
+          @click="resolveKeybinds"
+          :disabled="isResolvingKeybinds || isBuilding"
+          class="kip-btn-ghost px-4 py-2.5 text-xs font-mono font-bold uppercase tracking-wider text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10 flex items-center gap-2"
+        >
+          <Loader v-if="isResolvingKeybinds" class="w-4 h-4 animate-spin" />
+          <Wrench v-else class="w-4 h-4" />
+          <span>Fix Keybinds</span>
+        </button>
+
+        <button
+          v-if="lastBuildResult?.success"
+          @click="launchSynthesizedInstance"
+          class="kip-btn-primary px-6 py-2.5 text-xs font-black uppercase tracking-widest bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_20px_rgba(16,185,129,0.4)] flex items-center gap-2"
+        >
+          <Play class="w-4 h-4 fill-current" />
+          <span>Launch Instance</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Quick Preset Synth Chips -->
+    <section class="mb-6 shrink-0 z-10">
+      <div class="flex items-center gap-2 mb-2 text-[10px] font-mono font-bold uppercase text-white/40">
+        <Sparkles class="w-3.5 h-3.5 text-indigo-400" />
+        <span>Neural Concept Templates</span>
+      </div>
+
+      <div class="grid grid-cols-6 gap-3">
+        <button
+          v-for="p in presets"
+          :key="p.id"
+          @click="applyPreset(p)"
+          class="kip-card p-3 text-left border border-white/5 hover:border-indigo-500/40 bg-black/40 hover:bg-black/60 transition group flex flex-col justify-between h-24"
+        >
+          <div class="flex items-center justify-between mb-1">
+            <component :is="p.icon" class="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
+            <span class="text-[8px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/5 text-white/40 border border-white/10 font-bold">
+              {{ p.loader }}
+            </span>
+          </div>
+          <span class="font-bold text-xs text-white leading-tight line-clamp-2">{{ p.name }}</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Main Workspace -->
+    <div class="grid grid-cols-12 gap-6 flex-1 min-h-0 z-10">
+      <!-- Left Config Deck -->
+      <section class="col-span-7 flex flex-col gap-4">
+        <div class="kip-card p-6 border border-white/10 flex flex-col gap-5 bg-black/60 shadow-2xl">
+          <!-- Parameter Bar -->
+          <div class="grid grid-cols-3 gap-3">
+            <!-- Loader Selector -->
+            <div class="relative" @click.stop>
+              <label class="text-[9px] font-mono uppercase text-white/40 font-bold block mb-1">Mod Loader</label>
+              <div
+                @click="activeDropdown = activeDropdown === 'loader' ? null : 'loader'"
+                class="kip-input py-2 px-3 text-xs font-bold uppercase flex justify-between items-center cursor-pointer hover:border-indigo-500"
+                :class="activeDropdown === 'loader' ? 'border-indigo-500' : ''"
+              >
+                <span>{{ builderForm.loader }}</span>
+                <ChevronDown class="w-3.5 h-3.5 text-white/40" />
+              </div>
+              <div
+                v-if="activeDropdown === 'loader'"
+                class="absolute top-full left-0 w-full mt-1.5 bg-[#121214]/98 border border-white/10 rounded-xl shadow-2xl py-1 z-50 backdrop-blur-xl"
+              >
+                <div
+                  v-for="l in (['fabric', 'forge', 'neoforge', 'quilt'] as const)"
+                  :key="l"
+                  @click="builderForm.loader = l; activeDropdown = null"
+                  class="px-4 py-2 hover:bg-white/5 cursor-pointer text-xs font-bold uppercase"
+                  :class="builderForm.loader === l ? 'text-indigo-400' : 'text-white/70'"
+                >
+                  {{ l }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Version Selector -->
+            <div class="relative" @click.stop>
+              <label class="text-[9px] font-mono uppercase text-white/40 font-bold block mb-1">Target Version</label>
+              <div
+                @click="activeDropdown = activeDropdown === 'version' ? null : 'version'"
+                class="kip-input py-2 px-3 text-xs font-mono font-bold flex justify-between items-center cursor-pointer hover:border-indigo-500"
+                :class="activeDropdown === 'version' ? 'border-indigo-500' : ''"
+              >
+                <span>MC {{ builderForm.mcVersion }}</span>
+                <ChevronDown class="w-3.5 h-3.5 text-white/40" />
+              </div>
+              <div
+                v-if="activeDropdown === 'version'"
+                class="absolute top-full left-0 w-full mt-1.5 bg-[#121214]/98 border border-white/10 rounded-xl shadow-2xl py-1 z-50 backdrop-blur-xl max-h-48 overflow-y-auto custom-scroll"
+              >
+                <div
+                  v-for="v in ['26.3', '26.2', '26.1', '1.21.4', '1.21.1', '1.20.1', '1.16.5']"
+                  :key="v"
+                  @click="builderForm.mcVersion = v; activeDropdown = null"
+                  class="px-4 py-2 hover:bg-white/5 cursor-pointer text-xs font-mono font-bold"
+                  :class="builderForm.mcVersion === v ? 'text-indigo-400' : 'text-white/70'"
+                >
+                  {{ v }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Mod Limit Slider -->
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                <label class="text-[9px] font-mono uppercase text-white/40 font-bold">Scope Limit</label>
+                <span class="text-xs font-mono font-bold text-indigo-400">{{ builderForm.maxMods }} mods</span>
+              </div>
+              <input
+                v-model.number="builderForm.maxMods"
+                type="range"
+                min="10"
+                max="60"
+                step="5"
+                class="w-full accent-indigo-500 bg-white/10 h-1.5 rounded-lg appearance-none cursor-pointer"
+              >
+            </div>
+          </div>
+
+          <!-- Prompt Area -->
+          <div class="flex flex-col gap-2">
+            <label class="text-[9px] font-mono uppercase text-white/40 font-bold">Neural Concept Specifications</label>
+            <textarea
+              v-model="builderForm.prompt"
+              rows="6"
+              placeholder="Describe your desired gameplay experience in natural language... Include preferred biomes, mechanical tiers, magic schools, visual enhancements or specific mods."
+              class="kip-input text-xs font-mono resize-none leading-relaxed p-4 h-44 select-text"
+            ></textarea>
+          </div>
+
+          <!-- Switches -->
+          <div class="grid grid-cols-2 gap-3 pt-2 border-t border-white/5">
+            <div
+              @click="builderForm.includePerformance = !builderForm.includePerformance"
+              class="p-3 bg-black/40 rounded-xl border border-white/5 flex items-center justify-between cursor-pointer"
+            >
+              <div>
+                <span class="text-xs font-bold text-white block">Foundation Optimization</span>
+                <span class="text-[9px] font-mono text-white/40">Inject Sodium, Lithium, FerriteCore</span>
+              </div>
+              <input type="checkbox" :checked="builderForm.includePerformance" class="accent-indigo-500 w-4 h-4 pointer-events-none">
+            </div>
+
+            <div
+              @click="builderForm.resolveKeybindsAfter = !builderForm.resolveKeybindsAfter"
+              class="p-3 bg-black/40 rounded-xl border border-white/5 flex items-center justify-between cursor-pointer"
+            >
+              <div>
+                <span class="text-xs font-bold text-white block">Auto-Remap Keybinds</span>
+                <span class="text-[9px] font-mono text-white/40">Resolve duplicates in options.txt</span>
+              </div>
+              <input type="checkbox" :checked="builderForm.resolveKeybindsAfter" class="accent-indigo-500 w-4 h-4 pointer-events-none">
+            </div>
+          </div>
+
+          <!-- Action Button -->
+          <button
+            @click="handleStartSynthesis"
+            :disabled="isBuilding || !builderForm.prompt.trim()"
+            class="kip-btn-primary py-4 text-xs font-black uppercase tracking-widest shadow-[0_0_25px_rgba(99,102,241,0.4)] flex items-center justify-center gap-2"
+          >
+            <Loader v-if="isBuilding" class="w-4 h-4 animate-spin" />
+            <Sparkles v-else class="w-4 h-4" />
+            <span>{{ isBuilding ? 'Synthesizing Architecture...' : 'Ignite Modpack Synthesis' }}</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Right Synth Progress & Terminal Deck -->
+      <section class="col-span-5 flex flex-col gap-4">
+        <!-- Live Synthesis Status Card -->
+        <div class="kip-card p-6 border border-white/10 flex flex-col justify-between bg-black/60 shadow-2xl">
+          <div class="flex justify-between items-start mb-4">
+            <div>
+              <span class="text-[9px] font-mono font-bold uppercase text-white/40 block">Compilation Phase</span>
+              <span class="text-sm font-black text-indigo-400 font-mono uppercase mt-0.5 block">
+                {{ currentProgress.phase }}
+              </span>
+            </div>
+            <span class="text-xs font-mono font-black text-white bg-white/10 px-2.5 py-1 rounded-lg">
+              {{ Math.round(currentProgress.percent) }}%
+            </span>
+          </div>
+
+          <!-- Progress Bar -->
+          <div class="w-full h-2 bg-black/80 rounded-full overflow-hidden border border-white/5 mb-3">
+            <div
+              class="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400 transition-all duration-300"
+              :style="{ width: `${currentProgress.percent}%` }"
+            ></div>
+          </div>
+
+          <p class="text-[11px] font-mono text-white/60 truncate">{{ currentProgress.currentStep }}</p>
+        </div>
+
+        <!-- Terminal Output -->
+        <div class="kip-card p-4 border border-white/10 flex-1 flex flex-col bg-black/80 font-mono min-h-[260px] shadow-inner">
+          <div class="flex justify-between items-center pb-2 mb-2 border-b border-white/5 text-[10px] text-white/40">
+            <span class="flex items-center gap-1.5"><Terminal class="w-3.5 h-3.5 text-indigo-400" /> Synthesis Telemetry Log</span>
+            <span>{{ terminalLogs.length }} lines</span>
+          </div>
+
+          <div ref="logContainer" class="flex-1 overflow-y-auto custom-scroll text-[11px] text-white/70 space-y-1 select-text leading-relaxed">
+            <div v-for="(log, idx) in terminalLogs" :key="idx" class="truncate" :class="log.includes('[ERROR]') ? 'text-rose-400' : log.includes('[DONE]') ? 'text-emerald-400 font-bold' : ''">
+              {{ log }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Keybind Remap Report (If available) -->
+        <div v-if="keybindReport && keybindReport.conflictsResolved > 0" class="kip-card p-4 border border-emerald-500/30 bg-emerald-950/10">
+          <div class="flex items-center gap-2 mb-2 text-xs font-mono font-bold text-emerald-400">
+            <CheckCircle class="w-4 h-4" />
+            <span>Remapped {{ keybindReport.conflictsResolved }} Collisions</span>
+          </div>
+          <div class="max-h-24 overflow-y-auto custom-scroll space-y-1 text-[10px] font-mono text-white/60">
+            <div v-for="d in keybindReport.details" :key="d.keyId" class="flex justify-between">
+              <span class="text-white/80 truncate max-w-[140px]">{{ d.keyId }}</span>
+              <span>{{ d.oldBinding }} &rarr; <strong class="text-emerald-400">{{ d.newBinding }}</strong></span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</template>

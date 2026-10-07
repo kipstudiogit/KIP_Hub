@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities for KIP Hub","local":true,"windows":["main"],"permissions":["core:default","updater:default"]}}
+{"default":{"identifier":"default","description":"Default capabilities for K.I.P. Hub core runtime","local":true,"windows":["main"],"permissions":["core:default","core:event:default","core:window:default","core:app:default","core:path:default","updater:default"]}}

@@ -9,9 +9,12 @@ use serde_json::Value;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendRecordEntity {
     pub name: String,
+    pub is_favorite: bool,
+    pub note: String,
     pub added_at: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaytimeRecordEntity {
     pub instance: String,
@@ -52,10 +55,17 @@ impl DatabaseManager {
              );
              CREATE TABLE IF NOT EXISTS friends (
                  name TEXT PRIMARY KEY,
+                 is_favorite INTEGER NOT NULL DEFAULT 0,
+                 note TEXT DEFAULT '',
                  added_at DATETIME DEFAULT CURRENT_TIMESTAMP
              );
-             CREATE INDEX IF NOT EXISTS idx_friends_added ON friends(added_at DESC);",
+             CREATE INDEX IF NOT EXISTS idx_friends_added ON friends(is_favorite DESC, added_at DESC);",
         )?;
+
+        let _ = conn.execute_batch(
+            "ALTER TABLE friends ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE friends ADD COLUMN note TEXT DEFAULT '';"
+        );
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -126,17 +136,47 @@ impl DatabaseManager {
         stmt.query_row(params![instance], |row| row.get(0)).unwrap_or(0)
     }
 
-    pub fn get_friends(&self) -> Vec<String> {
+    pub fn get_all_playtimes(&self) -> Vec<PlaytimeRecordEntity> {
         let conn = self.conn.lock();
-        let mut stmt = match conn.prepare_cached("SELECT name FROM friends ORDER BY added_at DESC") {
+        let mut stmt = match conn.prepare_cached("SELECT instance, seconds FROM play_time ORDER BY seconds DESC") {
             Ok(s) => s,
             Err(_) => return Vec::new(),
         };
-        let names = match stmt.query_map([], |row| row.get::<_, String>(0)) {
-            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+
+        let rows = match stmt.query_map([], |row| {
+            Ok(PlaytimeRecordEntity {
+                instance: row.get(0)?,
+                seconds: row.get(1)?,
+            })
+        }) {
+            Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
             Err(_) => Vec::new(),
         };
-        names
+
+        rows
+    }
+
+    pub fn get_friends(&self) -> Vec<FriendRecordEntity> {
+        let conn = self.conn.lock();
+        let mut stmt = match conn.prepare_cached("SELECT name, is_favorite, note, added_at FROM friends ORDER BY is_favorite DESC, added_at DESC") {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        let rows = match stmt.query_map([], |row| {
+            let fav_num: i32 = row.get(1).unwrap_or(0);
+            Ok(FriendRecordEntity {
+                name: row.get(0)?,
+                is_favorite: fav_num == 1,
+                note: row.get(2).unwrap_or_default(),
+                added_at: row.get(3).unwrap_or_default(),
+            })
+        }) {
+            Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
+            Err(_) => Vec::new(),
+        };
+
+        rows
     }
 
     pub fn add_friend(&self, name: &str) -> bool {
@@ -146,7 +186,7 @@ impl DatabaseManager {
         }
         let conn = self.conn.lock();
         conn.execute(
-            "INSERT OR IGNORE INTO friends (name, added_at) VALUES (?1, CURRENT_TIMESTAMP)",
+            "INSERT OR IGNORE INTO friends (name, is_favorite, note, added_at) VALUES (?1, 0, '', CURRENT_TIMESTAMP)",
             params![trimmed],
         )
         .map(|count| count > 0)
@@ -162,6 +202,34 @@ impl DatabaseManager {
         conn.execute("DELETE FROM friends WHERE name = ?1", params![trimmed])
             .map(|count| count > 0)
             .unwrap_or(false)
+    }
+
+    pub fn toggle_favorite_friend(&self, name: &str) -> bool {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE friends SET is_favorite = CASE WHEN is_favorite = 1 THEN 0 ELSE 1 END WHERE name = ?1",
+            params![trimmed],
+        )
+        .map(|count| count > 0)
+        .unwrap_or(false)
+    }
+
+    pub fn update_friend_note(&self, name: &str, note: &str) -> bool {
+        let trimmed_name = name.trim();
+        if trimmed_name.is_empty() {
+            return false;
+        }
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE friends SET note = ?2 WHERE name = ?1",
+            params![trimmed_name, note.trim()],
+        )
+        .map(|count| count > 0)
+        .unwrap_or(false)
     }
 
     pub fn checkpoint(&self) -> bool {

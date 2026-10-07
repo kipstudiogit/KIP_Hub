@@ -5,11 +5,8 @@ pub mod signatures;
 use std::path::Path;
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
-use tauri::State;
 use walkdir::WalkDir;
 
-use crate::commands::AppState;
-use crate::config;
 use crate::shield::analyzer::{FileSecurityReportDto, StaticBytecodeAnalyzer};
 use crate::shield::quarantine::{QuarantineRecordDto, QuarantineVault};
 
@@ -36,6 +33,7 @@ impl ShieldManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn scan_single_file(&self, filepath: &str) -> FileSecurityReportDto {
         self.analyzer.analyze_file(Path::new(filepath))
     }
@@ -84,8 +82,13 @@ impl ShieldManager {
     pub fn quarantine(&self, filepath: &str) -> Result<QuarantineRecordDto, String> {
         let p = Path::new(filepath);
         let report = self.analyzer.analyze_file(p);
-        let threat_name = report.indicators.first().map(|i| i.title.clone()).unwrap_or_else(|| "Generic Suspicious Signature".to_string());
-        self.vault.quarantine_file(p, &threat_name, report.threat_score, &report.sha256)
+        let threat_name = report
+            .indicators
+            .first()
+            .map(|i| i.title.clone())
+            .unwrap_or_else(|| "Generic Suspicious Signature".to_string());
+        self.vault
+            .quarantine_file(p, &threat_name, report.threat_score, &report.sha256)
     }
 
     pub fn restore(&self, id: &str) -> Result<bool, String> {
@@ -99,61 +102,4 @@ impl ShieldManager {
     pub fn get_vault_records(&self) -> Vec<QuarantineRecordDto> {
         self.vault.load_records()
     }
-}
-
-#[tauri::command]
-pub async fn shield_scan_full(state: State<'_, AppState>, target_dir: Option<String>) -> Result<ShieldScanReportDto, String> {
-    let shield = state.shield.clone();
-    tokio::task::spawn_blocking(move || {
-        let cfg = config::load_app_config();
-        let path = target_dir.unwrap_or_else(|| Path::new(&cfg.current_instance).join("mods").to_string_lossy().to_string());
-        Ok(shield.scan_directory(&path))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn shield_scan_file(state: State<'_, AppState>, filepath: String) -> Result<FileSecurityReportDto, String> {
-    let shield = state.shield.clone();
-    tokio::task::spawn_blocking(move || {
-        Ok(shield.scan_single_file(&filepath))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn shield_quarantine_threat(state: State<'_, AppState>, filepath: String) -> Result<QuarantineRecordDto, String> {
-    let shield = state.shield.clone();
-    tokio::task::spawn_blocking(move || {
-        shield.quarantine(&filepath)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn shield_restore_threat(state: State<'_, AppState>, quarantine_id: String) -> Result<bool, String> {
-    let shield = state.shield.clone();
-    tokio::task::spawn_blocking(move || {
-        shield.restore(&quarantine_id)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn shield_shred_threat(state: State<'_, AppState>, quarantine_id: String) -> Result<bool, String> {
-    let shield = state.shield.clone();
-    tokio::task::spawn_blocking(move || {
-        shield.shred(&quarantine_id)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub fn shield_get_vault(state: State<'_, AppState>) -> Vec<QuarantineRecordDto> {
-    state.shield.get_vault_records()
 }

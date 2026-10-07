@@ -1,12 +1,16 @@
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use parking_lot::Mutex;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use zip::ZipArchive;
 use crate::config;
+use crate::system_utils::SystemUtils;
+
+static JAVA_PROBE_CACHE: Mutex<Option<HashMap<String, u32>>> = Mutex::new(None);
 
 pub struct JavaManager {
     client: reqwest::Client,
@@ -106,13 +110,16 @@ impl JavaManager {
             path.to_string()
         };
 
-        let mut cmd = Command::new(&probe_path);
-        cmd.arg("-version");
-        #[cfg(target_os = "windows")]
         {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
+            let mut guard = JAVA_PROBE_CACHE.lock();
+            let map = guard.get_or_insert_with(HashMap::new);
+            if let Some(&cached_major) = map.get(&probe_path) {
+                return if cached_major > 0 { Some(cached_major) } else { None };
+            }
         }
+
+        let mut cmd = SystemUtils::silent_command(&probe_path);
+        cmd.arg("-version");
 
         let output = cmd.output().ok()?;
         let text = format!(
@@ -122,23 +129,28 @@ impl JavaManager {
         ).to_lowercase();
 
         let quote_parts: Vec<&str> = text.split('"').collect();
-        let ver_str = if quote_parts.len() > 1 {
-            quote_parts[1]
-        } else {
-            return None;
-        };
+        if quote_parts.len() > 1 {
+            let ver_str = quote_parts[1];
+            let dot_parts: Vec<&str> = ver_str.split('.').collect();
+            if !dot_parts.is_empty() {
+                if let Ok(first) = dot_parts[0].parse::<u32>() {
+                    let major = if first == 1 && dot_parts.len() > 1 {
+                        dot_parts[1].parse::<u32>().unwrap_or(8)
+                    } else {
+                        first
+                    };
 
-        let dot_parts: Vec<&str> = ver_str.split('.').collect();
-        if dot_parts.is_empty() {
-            return None;
-        }
-
-        if let Ok(first) = dot_parts[0].parse::<u32>() {
-            if first == 1 && dot_parts.len() > 1 {
-                return dot_parts[1].parse::<u32>().ok();
+                    let mut guard = JAVA_PROBE_CACHE.lock();
+                    let map = guard.get_or_insert_with(HashMap::new);
+                    map.insert(probe_path, major);
+                    return Some(major);
+                }
             }
-            return Some(first);
         }
+
+        let mut guard = JAVA_PROBE_CACHE.lock();
+        let map = guard.get_or_insert_with(HashMap::new);
+        map.insert(probe_path, 0);
         None
     }
 

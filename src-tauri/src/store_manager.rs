@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
@@ -110,7 +110,7 @@ impl StoreManager {
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
-            HeaderValue::from_static("KIPStudio/KIP_Hub/1.6.0 (contact@kip.studio)"),
+            HeaderValue::from_static("KIPStudio/KIP_Hub/1.7.0 (contact@kip.studio)"),
         );
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
 
@@ -146,12 +146,23 @@ impl StoreManager {
     }
 
     fn is_item_installed(&self, installed: &HashSet<String>, slug: &str, title: &str) -> (bool, Option<String>) {
-        let clean_slug = slug.trim().to_lowercase();
+        let clean_slug = slug.trim().to_lowercase().replace('_', "-");
         let clean_title = title.trim().to_lowercase().replace(' ', "-").replace('_', "-");
 
         for filename in installed {
-            let clean_file = filename.replace(".jar", "").replace(".disabled", "").replace(".zip", "");
-            if clean_file.contains(&clean_slug) || clean_file.contains(&clean_title) {
+            let clean_file = filename.to_lowercase()
+                .replace(".jar", "")
+                .replace(".disabled", "")
+                .replace(".zip", "");
+            let file_stem_prefix = clean_file.split('-').next().unwrap_or(&clean_file);
+
+            if clean_file == clean_slug
+                || clean_file.starts_with(&format!("{}-", clean_slug))
+                || clean_file.starts_with(&format!("{}_", clean_slug))
+                || clean_file.contains(&clean_slug)
+                || file_stem_prefix == clean_slug
+                || clean_file.contains(&clean_title)
+            {
                 return (true, Some(filename.clone()));
             }
         }
@@ -458,8 +469,20 @@ impl StoreManager {
         }
         let details: Value = det_res.json().await.map_err(|e| e.to_string())?;
 
-        let ver_url = format!("https://api.modrinth.com/v2/project/{}/version", project_id);
-        let ver_res = self.client.get(&ver_url).send().await.map_err(|e| e.to_string())?;
+        let mut ver_url = Url::parse(&format!("https://api.modrinth.com/v2/project/{}/version", project_id)).map_err(|e| e.to_string())?;
+        {
+            let mut pairs = ver_url.query_pairs_mut();
+            if !loader.is_empty() {
+                let l_json = serde_json::to_string(&vec![loader]).unwrap_or_default();
+                pairs.append_pair("loaders", &l_json);
+            }
+            if !game_version.is_empty() {
+                let v_json = serde_json::to_string(&vec![game_version]).unwrap_or_default();
+                pairs.append_pair("game_versions", &v_json);
+            }
+        }
+
+        let ver_res = self.client.get(ver_url).send().await.map_err(|e| e.to_string())?;
         let versions_raw: Value = if ver_res.status().is_success() {
             ver_res.json().await.unwrap_or(json!([]))
         } else {
@@ -469,52 +492,49 @@ impl StoreManager {
         let mut valid_versions = Vec::new();
         if let Some(arr) = versions_raw.as_array() {
             for v in arr {
-                let matches_loader = loader.is_empty()
-                    || v["loaders"]
-                        .as_array()
-                        .map_or(false, |l| l.iter().any(|val| val == loader));
-                let matches_mc = game_version.is_empty()
-                    || v["game_versions"]
-                        .as_array()
-                        .map_or(false, |g| g.iter().any(|val| val == game_version));
-
-                if matches_loader && matches_mc {
-                    let mut files = Vec::new();
-                    if let Some(fls) = v["files"].as_array() {
-                        for f in fls {
-                            files.push(StoreItemFileDto {
-                                filename: f["filename"].as_str().unwrap_or("").to_string(),
-                                url: f["url"].as_str().unwrap_or("").to_string(),
-                                primary: f["primary"].as_bool().unwrap_or(false),
-                                size: f["size"].as_u64().unwrap_or(0) as usize,
-                            });
+                let mut files = Vec::new();
+                if let Some(fls) = v["files"].as_array() {
+                    for f in fls {
+                        let fname = f["filename"].as_str().unwrap_or("").to_lowercase();
+                        if fname.ends_with("-sources.jar") || fname.ends_with("-javadoc.jar") || fname.ends_with("-dev.jar") {
+                            continue;
                         }
+                        files.push(StoreItemFileDto {
+                            filename: f["filename"].as_str().unwrap_or("").to_string(),
+                            url: f["url"].as_str().unwrap_or("").to_string(),
+                            primary: f["primary"].as_bool().unwrap_or(false),
+                            size: f["size"].as_u64().unwrap_or(0) as usize,
+                        });
                     }
-
-                    let mut dependencies = Vec::new();
-                    if let Some(deps) = v["dependencies"].as_array() {
-                        for d in deps {
-                            dependencies.push(StoreItemDependencyDto {
-                                project_id: d["project_id"].as_str().unwrap_or("").to_string(),
-                                version_id: d["version_id"].as_str().map(|s| s.to_string()),
-                                dependency_type: d["dependency_type"].as_str().unwrap_or("required").to_string(),
-                                file_name: d["file_name"].as_str().map(|s| s.to_string()),
-                            });
-                        }
-                    }
-
-                    valid_versions.push(StoreItemVersionDto {
-                        id: v["id"].as_str().unwrap_or("").to_string(),
-                        version_number: v["version_number"].as_str().unwrap_or("").to_string(),
-                        name: v["name"].as_str().unwrap_or("").to_string(),
-                        date: v["date_published"].as_str().unwrap_or("").to_string(),
-                        changelog: v["changelog"].as_str().unwrap_or("").to_string(),
-                        files,
-                        dependencies,
-                        game_versions: v["game_versions"].as_array().map(|arr| arr.iter().filter_map(|s| s.as_str().map(|st| st.to_string())).collect()).unwrap_or_default(),
-                        loaders: v["loaders"].as_array().map(|arr| arr.iter().filter_map(|s| s.as_str().map(|st| st.to_string())).collect()).unwrap_or_default(),
-                    });
                 }
+
+                if files.is_empty() {
+                    continue;
+                }
+
+                let mut dependencies = Vec::new();
+                if let Some(deps) = v["dependencies"].as_array() {
+                    for d in deps {
+                        dependencies.push(StoreItemDependencyDto {
+                            project_id: d["project_id"].as_str().unwrap_or("").to_string(),
+                            version_id: d["version_id"].as_str().map(|s| s.to_string()),
+                            dependency_type: d["dependency_type"].as_str().unwrap_or("required").to_string(),
+                            file_name: d["file_name"].as_str().map(|s| s.to_string()),
+                        });
+                    }
+                }
+
+                valid_versions.push(StoreItemVersionDto {
+                    id: v["id"].as_str().unwrap_or("").to_string(),
+                    version_number: v["version_number"].as_str().unwrap_or("").to_string(),
+                    name: v["name"].as_str().unwrap_or("").to_string(),
+                    date: v["date_published"].as_str().unwrap_or("").to_string(),
+                    changelog: v["changelog"].as_str().unwrap_or("").to_string(),
+                    files,
+                    dependencies,
+                    game_versions: v["game_versions"].as_array().map(|arr| arr.iter().filter_map(|s| s.as_str().map(|st| st.to_string())).collect()).unwrap_or_default(),
+                    loaders: v["loaders"].as_array().map(|arr| arr.iter().filter_map(|s| s.as_str().map(|st| st.to_string())).collect()).unwrap_or_default(),
+                });
             }
         }
 
@@ -678,7 +698,9 @@ impl StoreManager {
 
         let total_size = resp.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
-        let mut file = File::create(dest_path).map_err(|e| e.to_string())?;
+        let temp_path = dest_path.with_extension("dl_tmp");
+
+        let mut file = File::create(&temp_path).map_err(|e| e.to_string())?;
         let mut stream = resp.bytes_stream();
 
         while let Some(chunk_res) = stream.next().await {
@@ -698,12 +720,39 @@ impl StoreManager {
                     project_id: project_id.to_string(),
                     filename: filename.to_string(),
                     progress,
-                    status: "Downloading payload...".to_string(),
+                    status: "Streaming payload...".to_string(),
                 },
             );
         }
 
-        let _ = file.sync_all();
+        file.sync_all().map_err(|e| e.to_string())?;
+        drop(file);
+
+        let is_valid = if let Ok(meta) = fs::metadata(&temp_path) {
+            if meta.len() >= 500 {
+                if let Ok(mut check_file) = File::open(&temp_path) {
+                    let mut magic = [0u8; 4];
+                    check_file.read_exact(&mut magic).is_ok() && &magic == &[0x50, 0x4B, 0x03, 0x04]
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if !is_valid {
+            let _ = fs::remove_file(&temp_path);
+            return Err("Downloaded archive failed ZIP magic integrity validation.".to_string());
+        }
+
+        if dest_path.exists() {
+            let _ = fs::remove_file(dest_path);
+        }
+
+        fs::rename(&temp_path, dest_path).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -724,10 +773,11 @@ impl StoreManager {
         let target_dir = self.get_target_dir(mc_dir, project_type);
         fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
 
-        let primary_dest = target_dir.join(filename);
+        let clean_fname = Path::new(filename).file_name().and_then(|n| n.to_str()).unwrap_or(filename);
+        let primary_dest = target_dir.join(clean_fname);
         let mut installed_dependencies = Vec::new();
 
-        self.download_with_progress(app, file_url, &primary_dest, project_id, filename).await?;
+        self.download_with_progress(app, file_url, &primary_dest, project_id, clean_fname).await?;
 
         if provider == "modrinth" && project_type == "mod" {
             let mut visited = HashSet::new();
@@ -760,7 +810,7 @@ impl StoreManager {
                 }
             }
 
-            let installed_now = self.get_installed_filenames(mc_dir, "mod");
+            let mut installed_now = self.get_installed_filenames(mc_dir, "mod");
 
             while let Some(dep_proj_id) = queue.pop() {
                 if visited.contains(&dep_proj_id) {
@@ -770,26 +820,30 @@ impl StoreManager {
 
                 let details_res = self.get_modrinth_details(&dep_proj_id, loader, game_version).await;
                 if let Ok(det) = details_res {
-                    let (already_inst, _) = self.is_item_installed(&installed_now, &dep_proj_id, &dep_proj_id);
+                    let proj_slug = det.details.body.split_whitespace().next().unwrap_or(&dep_proj_id);
+                    let (already_inst, _) = self.is_item_installed(&installed_now, &dep_proj_id, proj_slug);
                     if already_inst {
                         continue;
                     }
 
                     if let Some(first_ver) = det.versions.first() {
                         if let Some(target_file) = first_ver.files.iter().find(|f| f.primary).or_else(|| first_ver.files.first()) {
-                            let dep_dest = target_dir.join(&target_file.filename);
+                            let dep_clean_fname = Path::new(&target_file.filename).file_name().and_then(|n| n.to_str()).unwrap_or(&target_file.filename);
+                            let dep_dest = target_dir.join(dep_clean_fname);
+
                             let _ = app.emit(
                                 "storeDownloadProgress",
                                 StoreInstallProgressPayload {
                                     project_id: dep_proj_id.clone(),
-                                    filename: target_file.filename.clone(),
+                                    filename: dep_clean_fname.to_string(),
                                     progress: 10.0,
-                                    status: format!("Resolving required dependency {}...", target_file.filename),
+                                    status: format!("Resolving companion {}...", dep_clean_fname),
                                 },
                             );
 
-                            if self.download_with_progress(app, &target_file.url, &dep_dest, &dep_proj_id, &target_file.filename).await.is_ok() {
-                                installed_dependencies.push(target_file.filename.clone());
+                            if self.download_with_progress(app, &target_file.url, &dep_dest, &dep_proj_id, dep_clean_fname).await.is_ok() {
+                                installed_dependencies.push(dep_clean_fname.to_string());
+                                installed_now.insert(dep_clean_fname.to_lowercase());
                             }
 
                             for sub_dep in &first_ver.dependencies {
@@ -805,9 +859,9 @@ impl StoreManager {
 
         Ok(StoreInstallResultDto {
             success: true,
-            filename: filename.to_string(),
+            filename: clean_fname.to_string(),
             installed_dependencies,
-            message: format!("Successfully installed {}", filename),
+            message: format!("Successfully installed {}", clean_fname),
         })
     }
 

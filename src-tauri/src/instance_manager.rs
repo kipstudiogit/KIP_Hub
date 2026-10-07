@@ -6,6 +6,9 @@ use std::sync::Arc;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 use crate::config;
 use crate::java_manager::JavaManager;
 use crate::launch::libraries::LibraryManager;
@@ -13,6 +16,8 @@ use crate::launch::loaders::LoaderManager;
 use crate::launch::process::ProcessSupervisor;
 use crate::launch::ManifestMerger;
 use crate::system_utils::SystemUtils;
+
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub struct InstanceManager {
     client: reqwest::Client,
@@ -32,7 +37,7 @@ impl InstanceManager {
     }
 
     pub async fn ensure_version_downloaded(&self, version: &str, mc_dir: &Path, app: &AppHandle) -> Result<PathBuf, String> {
-        let clean_ver = version.split('-').next().unwrap_or(version);
+        let clean_ver = version.trim();
         let versions_dir = mc_dir.join("versions");
         let version_dir = versions_dir.join(clean_ver);
         let version_json_path = version_dir.join(format!("{}.json", clean_ver));
@@ -150,7 +155,7 @@ impl InstanceManager {
         mc_dir: &Path,
         app: &AppHandle,
     ) -> Result<String, String> {
-        let clean_mc_ver = mc_version.split('-').next().unwrap_or(mc_version);
+        let clean_mc_ver = mc_version.trim();
         let versions_dir = mc_dir.join("versions");
         fs::create_dir_all(&versions_dir).map_err(|e| e.to_string())?;
 
@@ -172,6 +177,7 @@ impl InstanceManager {
         loader_version: &str,
         mc_dir_str: &str,
         account: &Value,
+        extra_jvm_args: Option<&str>,
         app: &AppHandle,
     ) -> Result<(String, u32), String> {
         let mc_dir = Path::new(mc_dir_str);
@@ -179,7 +185,7 @@ impl InstanceManager {
             let _ = fs::create_dir_all(mc_dir);
         }
 
-        let clean_version = version.split('-').next().unwrap_or(version);
+        let clean_version = version.trim();
         let _ = self.ensure_version_downloaded(clean_version, mc_dir, app).await?;
 
         let launch_version = if loader.is_empty() || loader == "vanilla" {
@@ -214,7 +220,7 @@ impl InstanceManager {
             .and_then(|v| v.as_str())
             .or_else(|| version_data.get("inheritsFrom").and_then(|v| v.as_str()))
             .unwrap_or(clean_version);
-        let final_base_ver = base_mc_ver.split('-').next().unwrap_or(base_mc_ver);
+        let final_base_ver = base_mc_ver.trim();
         let base_jar_path = mc_dir.join("versions").join(final_base_ver).join(format!("{}.jar", final_base_ver));
 
         if !base_jar_path.exists() || base_jar_path.metadata().map(|m| m.len() < 1000).unwrap_or(true) {
@@ -243,8 +249,7 @@ impl InstanceManager {
 
         #[cfg(target_os = "windows")]
         {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
+            cmd.creation_flags(CREATE_NO_WINDOW);
         }
 
         cmd.env_remove("_JAVA_OPTIONS");
@@ -253,11 +258,16 @@ impl InstanceManager {
 
         let app_config = config::load_app_config();
         let (_, default_jvm_args) = SystemUtils::generate_jvm_args_for_ram(app_config.ram_allocation);
-        let jvm_args_str = if !app_config.custom_jvm_args.is_empty() {
-            &app_config.custom_jvm_args
+        let mut jvm_args_str = if !app_config.custom_jvm_args.is_empty() {
+            app_config.custom_jvm_args.clone()
         } else {
-            &default_jvm_args
+            default_jvm_args
         };
+
+        if let Some(extra) = extra_jvm_args {
+            jvm_args_str.push(' ');
+            jvm_args_str.push_str(extra);
+        }
 
         for arg in jvm_args_str.split_whitespace() {
             if ProcessSupervisor::filter_jvm_arg(arg, detected_java_major) {
@@ -441,7 +451,15 @@ impl InstanceManager {
     }
 
     pub fn deploy_docker_server(&self, core_type: &str, version: &str, port: &str, mc_dir_str: &str) -> Result<String, String> {
-        let docker_check = Command::new("docker").arg("info").output();
+        let mut check_cmd = Command::new("docker");
+        check_cmd.arg("info");
+
+        #[cfg(target_os = "windows")]
+        {
+            check_cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let docker_check = check_cmd.output();
         if docker_check.is_err() || !docker_check.unwrap().status.success() {
             return Err("Docker daemon is not running or not installed.".to_string());
         }
@@ -460,6 +478,11 @@ impl InstanceManager {
 
         let mut cmd = Command::new("docker");
         cmd.arg("compose").arg("up").arg("-d").current_dir(&server_dir);
+
+        #[cfg(target_os = "windows")]
+        {
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
 
         match cmd.spawn() {
             Ok(_) => Ok(format!("Container deployed to port {}", port)),

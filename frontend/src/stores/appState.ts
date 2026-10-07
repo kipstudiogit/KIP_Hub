@@ -57,6 +57,7 @@ export const state = reactive<AppState>({
     autostart: false,
     safe_mode: false,
     low_graphics: false,
+    mica: true,
     close_on_launch: false,
     ram_allocation: 0,
     jvm_gc: 'G1GC',
@@ -78,42 +79,44 @@ export const state = reactive<AppState>({
   consoleHtml: 'Awaiting data stream...',
   _consoleBuffer: [],
   aiInputText: '',
-  version: '1.7.0'
+  version: '2.0.0'
 })
 
 export async function loadSettings(): Promise<void> {
   try {
     const s = await bridge.getSettings()
     if (s) {
-      state.settings.mc_dir = typeof s.mc_dir === 'string' ? s.mc_dir : ''
-      state.settings.auto_backup = Boolean(s.auto_backup)
-      state.settings.rpc = s.rpc !== false
-      state.settings.ai_provider = typeof s.ai_provider === 'string' ? s.ai_provider : 'google'
-      state.settings.ai_model = typeof s.ai_model === 'string' ? s.ai_model : 'gemini-1.5-flash'
-      state.settings.ai_api_key = typeof s.ai_api_key === 'string' ? s.ai_api_key : ''
-      state.settings.openai_api_key = typeof s.openai_api_key === 'string' ? s.openai_api_key : ''
-      state.settings.anthropic_api_key = typeof s.anthropic_api_key === 'string' ? s.anthropic_api_key : ''
-      state.settings.ollama_url = typeof s.ollama_url === 'string' ? s.ollama_url : 'http://localhost:11434'
-      state.settings.cf_api_key = typeof s.cf_api_key === 'string' ? s.cf_api_key : ''
-      state.settings.lang = typeof s.lang === 'string' ? s.lang : 'en'
+      const activeInstance = (s.current_instance || s.currentInstance || s.mc_dir || '') as string
+      state.settings.mc_dir = activeInstance
+      state.settings.auto_backup = Boolean(s.auto_backup ?? s.autoBackup)
+      state.settings.rpc = (s.rpc !== false)
+      state.settings.ai_provider = (s.ai_provider || s.aiProvider || 'google') as string
+      state.settings.ai_model = (s.ai_model || s.aiModel || 'gemini-1.5-flash') as string
+      state.settings.ai_api_key = (s.ai_api_key || s.aiApiKey || '') as string
+      state.settings.openai_api_key = (s.openai_api_key || s.openaiApiKey || '') as string
+      state.settings.anthropic_api_key = (s.anthropic_api_key || s.anthropicApiKey || '') as string
+      state.settings.ollama_url = (s.ollama_url || s.ollamaUrl || 'http://localhost:11434') as string
+      state.settings.cf_api_key = (s.cf_api_key || s.cfApiKey || '') as string
+      state.settings.lang = (s.lang || 'en') as string
       state.settings.autostart = Boolean(s.autostart)
-      state.settings.safe_mode = Boolean(s.safe_mode)
-      state.settings.low_graphics = Boolean(s.low_graphics)
-      state.settings.close_on_launch = Boolean(s.close_on_launch)
-      state.settings.ram_allocation = typeof s.ram_allocation === 'number' ? s.ram_allocation : 0
-      state.settings.jvm_gc = typeof s.jvm_gc === 'string' ? s.jvm_gc : 'G1GC'
-      state.settings.jvm_preset = typeof s.jvm_preset === 'string' ? s.jvm_preset : 'balanced'
-      state.settings.shield_auto_scan = s.shield_auto_scan !== false
-      state.settings.voice_noise_suppression = s.voice_noise_suppression !== false
-      state.settings.eula_accepted = Boolean(s.eula_accepted)
-      state.settings.telemetry_opt_in = Boolean(s.telemetry_opt_in)
-      state.settings.instances = Array.isArray(s.instances) ? (s.instances as string[]) : []
-      state.settings.offline_username = typeof s.offline_username === 'string' ? s.offline_username : 'Player'
-      state.settings.game_resolution = typeof s.game_resolution === 'string' ? s.game_resolution : '1920x1080'
-      state.settings.game_fullscreen = Boolean(s.game_fullscreen)
-      state.settings.custom_java_path = typeof s.custom_java_path === 'string' ? s.custom_java_path : ''
-      state.settings.custom_jvm_args = typeof s.custom_jvm_args === 'string' ? s.custom_jvm_args : ''
-      state.settings.theme_accent = typeof s.theme_accent === 'string' ? s.theme_accent : 'indigo'
+      state.settings.safe_mode = Boolean(s.safe_mode ?? s.safeMode)
+      state.settings.low_graphics = Boolean(s.low_graphics ?? s.lowGraphics)
+      state.settings.mica = Boolean(s.mica ?? true)
+      state.settings.close_on_launch = Boolean(s.close_on_launch ?? s.closeOnLaunch)
+      state.settings.ram_allocation = typeof s.ram_allocation === 'number' ? s.ram_allocation : (typeof s.ramAllocation === 'number' ? s.ramAllocation : 0)
+      state.settings.jvm_gc = (s.jvm_gc || s.jvmGc || 'G1GC') as string
+      state.settings.jvm_preset = (s.jvm_preset || s.jvmPreset || 'balanced') as string
+      state.settings.shield_auto_scan = (s.shield_auto_scan ?? s.shieldAutoScan) !== false
+      state.settings.voice_noise_suppression = (s.voice_noise_suppression ?? s.voiceNoiseSuppression) !== false
+      state.settings.eula_accepted = Boolean(s.eula_accepted ?? s.eulaAccepted)
+      state.settings.telemetry_opt_in = Boolean(s.telemetry_opt_in ?? s.telemetryOptIn)
+      state.settings.instances = Array.isArray(s.instances) ? (s.instances as string[]) : (activeInstance ? [activeInstance] : [])
+      state.settings.offline_username = (s.offline_username || s.offlineUsername || 'Player') as string
+      state.settings.game_resolution = (s.game_resolution || s.gameResolution || '1920x1080') as string
+      state.settings.game_fullscreen = Boolean(s.game_fullscreen ?? s.gameFullscreen)
+      state.settings.custom_java_path = (s.custom_java_path || s.customJavaPath || '') as string
+      state.settings.custom_jvm_args = (s.custom_jvm_args || s.customJvmArgs || '') as string
+      state.settings.theme_accent = (s.theme_accent || s.themeAccent || 'indigo') as string
     }
 
     const prof = await bridge.getMsProfile()

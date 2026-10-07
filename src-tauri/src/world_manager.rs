@@ -11,6 +11,7 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use walkdir::WalkDir;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldCardData {
     pub name: String,
