@@ -24,5 +24,12 @@ export interface PartyInvitePreparedDto {
   tunnelUrl: string
 }
 
+export interface DiscoveredLanServerDto {
+  motd: string
+  port: number
+  address: string
+  lastSeenEpoch: number
+}
+
 export type SkinAnimationType = 'idle' | 'walk' | 'run'
 export type DockerCoreType = 'paper' | 'fabric' | 'forge' | 'vanilla'

@@ -25,10 +25,11 @@ import {
   Edit3,
   UserCheck,
   PackagePlus,
-  Play,
-  RotateCcw,
   Download,
   Search,
+  Sliders,
+  Activity,
+  HardDrive,
 } from 'lucide-vue-next'
 import { state, t, showToast, getAvatarUrl, saveSetting } from '@/store'
 import { bridge, invokeSafe } from '@/bridge'
@@ -47,6 +48,7 @@ const isLoaderVerDropdownOpen = ref(false)
 const isEditingNick = ref(false)
 const tempNick = ref('')
 const isDraggingOver = ref(false)
+
 const selectedVersion = ref('1.21.4')
 const selectedLoader = ref<LoaderType>('vanilla')
 const selectedLoaderVersion = ref('')
@@ -79,7 +81,7 @@ const presets: LaunchPreset[] = [
   {
     id: 'vanilla_pure',
     name: 'Pure Vanilla (1.21.4)',
-    desc: 'Official stable Minecraft release without modifications. Maximum stability.',
+    desc: 'Official stable Minecraft release without modifications. Maximum stability and low resource overhead.',
     loader: 'vanilla',
     badge: '1.21.4 Stable',
     badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
@@ -87,19 +89,9 @@ const presets: LaunchPreset[] = [
     icon: Box,
   },
   {
-    id: 'forge_heavy',
-    name: 'Forge Realm (1.21.4)',
-    desc: 'Enterprise modding architecture for tech, automation and magic expansions.',
-    loader: 'forge',
-    badge: '1.21.4 Stable',
-    badgeClass: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
-    bgClass: 'bg-rose-500',
-    icon: Flame,
-  },
-  {
     id: 'fabric_fps',
     name: 'Fabric Turbo (1.21.4)',
-    desc: 'Lightweight performance core engineered for high frame rates and shaders.',
+    desc: 'Lightweight performance core engineered for high frame rates, Sodium, and shader pipelines.',
     loader: 'fabric',
     badge: '1.21.4 Stable',
     badgeClass: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
@@ -107,9 +99,9 @@ const presets: LaunchPreset[] = [
     icon: Hexagon,
   },
   {
-    id: 'neoforge_blaze',
+    id: 'neoforge_matrix',
     name: 'NeoForge Matrix (1.21.4)',
-    desc: 'Official stable NeoForge next-generation loader for Minecraft 1.21.4.',
+    desc: 'Modern community-driven loader architecture for high-end mods on 1.21.4.',
     loader: 'neoforge',
     badge: '1.21.4 Stable',
     badgeClass: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
@@ -117,9 +109,19 @@ const presets: LaunchPreset[] = [
     icon: LucideComponent,
   },
   {
+    id: 'forge_lts',
+    name: 'Forge Realm (1.20.1 LTS)',
+    desc: 'Massive modpack ecosystem with thousands of established tech, magic, and dimension mods.',
+    loader: 'forge',
+    badge: '1.20.1 LTS',
+    badgeClass: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+    bgClass: 'bg-rose-500',
+    icon: Flame,
+  },
+  {
     id: 'quilt_flow',
     name: 'Quilt Modular (1.21.4)',
-    desc: 'Open modular ecosystem supporting Fabric ecosystem and next-gen tools.',
+    desc: 'Next-generation modular loader compatible with the Fabric ecosystem.',
     loader: 'quilt',
     badge: '1.21.4 Stable',
     badgeClass: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
@@ -130,9 +132,9 @@ const presets: LaunchPreset[] = [
 
 const loaders: { id: LoaderType; name: string; icon: Component }[] = [
   { id: 'vanilla', name: 'Vanilla', icon: Box },
-  { id: 'forge', name: 'Forge', icon: Flame },
   { id: 'fabric', name: 'Fabric', icon: Hexagon },
   { id: 'neoforge', name: 'NeoForge', icon: LucideComponent },
+  { id: 'forge', name: 'Forge', icon: Flame },
   { id: 'quilt', name: 'Quilt', icon: Layers },
 ]
 
@@ -149,12 +151,12 @@ const activeLoaderGlow = computed(() => {
   switch (selectedLoader.value) {
     case 'vanilla':
       return 'from-emerald-500/20 to-transparent'
-    case 'forge':
-      return 'from-rose-500/20 to-transparent'
     case 'fabric':
       return 'from-amber-500/20 to-transparent'
     case 'neoforge':
       return 'from-orange-500/20 to-transparent'
+    case 'forge':
+      return 'from-rose-500/20 to-transparent'
     case 'quilt':
       return 'from-purple-500/20 to-transparent'
     default:
@@ -166,12 +168,12 @@ const activeColorText = computed(() => {
   switch (selectedLoader.value) {
     case 'vanilla':
       return 'text-emerald-400'
-    case 'forge':
-      return 'text-rose-400'
     case 'fabric':
       return 'text-amber-400'
     case 'neoforge':
       return 'text-orange-400'
+    case 'forge':
+      return 'text-rose-400'
     case 'quilt':
       return 'text-purple-400'
     default:
@@ -184,12 +186,12 @@ const activeColorBtn = computed(() => {
   switch (selectedLoader.value) {
     case 'vanilla':
       return 'bg-emerald-500 text-black border-emerald-400 hover:shadow-[0_0_40px_rgba(16,185,129,0.6)]'
-    case 'forge':
-      return 'bg-rose-500 text-white border-rose-400 hover:shadow-[0_0_40px_rgba(244,63,94,0.6)]'
     case 'fabric':
       return 'bg-amber-500 text-black border-amber-400 hover:shadow-[0_0_40px_rgba(245,158,11,0.6)]'
     case 'neoforge':
       return 'bg-orange-500 text-black border-orange-400 hover:shadow-[0_0_40px_rgba(249,115,22,0.6)]'
+    case 'forge':
+      return 'bg-rose-500 text-white border-rose-400 hover:shadow-[0_0_40px_rgba(244,63,94,0.6)]'
     case 'quilt':
       return 'bg-purple-500 text-white border-purple-400 hover:shadow-[0_0_40px_rgba(168,85,247,0.6)]'
     default:
@@ -204,7 +206,7 @@ const filteredManifestVersions = computed(() => {
   return allManifestVersions.value.filter((v) => {
     if (filter === 'release' && v.versionType !== 'release') return false
     if (filter === 'snapshot' && v.versionType !== 'snapshot') return false
-    if (filter === 'historical' && (v.versionType !== 'old_beta' && v.versionType !== 'old_alpha')) return false
+    if (filter === 'historical' && v.versionType !== 'old_beta' && v.versionType !== 'old_alpha') return false
     if (query && !v.id.toLowerCase().includes(query)) return false
     return true
   })
@@ -251,7 +253,7 @@ function selectPreset(preset: LaunchPreset): void {
   activePresetId.value = preset.id
   selectedLoader.value = preset.loader
   selectedLoaderVersion.value = ''
-  selectedVersion.value = '1.21.4'
+  selectedVersion.value = preset.id === 'forge_lts' ? '1.20.1' : '1.21.4'
   checkPreflight(selectedVersion.value, selectedLoader.value)
 }
 
@@ -471,11 +473,11 @@ onBeforeUnmount(() => {
 
         <button
           @click="customMode = !customMode"
-          class="kip-btn-ghost px-4 py-2 text-xs tracking-wider uppercase border-white/10 flex items-center gap-2"
+          class="kip-btn-ghost px-4 py-2 text-xs tracking-wider uppercase border-white/10 flex items-center gap-2 cursor-pointer"
           :class="customMode ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' : 'text-white/60'"
         >
           <SlidersHorizontal class="w-4 h-4" />
-          <span>{{ customMode ? 'Presets' : 'Matrix Tuning' }}</span>
+          <span>{{ customMode ? 'Presets' : 'Custom Config' }}</span>
         </button>
       </div>
     </header>
@@ -488,9 +490,9 @@ onBeforeUnmount(() => {
         <div class="flex items-center gap-3">
           <AlertTriangle class="w-5 h-5 text-amber-400 shrink-0 animate-pulse" />
           <div>
-            <h4 class="text-xs font-black uppercase text-amber-400 tracking-wider">Critical Mod Collisions Detected</h4>
+            <h4 class="text-xs font-black uppercase text-amber-400 tracking-wider">Mod Compatibility Warning</h4>
             <p class="text-[11px] text-white/70 font-mono mt-0.5">
-              Mod Doctor detected incompatibilities targeting Minecraft {{ selectedVersion }} ({{ selectedLoader }}).
+              Detected conflicting packages for {{ selectedVersion }} ({{ selectedLoader }}). You can auto-repair or force ignite.
             </p>
           </div>
         </div>
@@ -499,16 +501,16 @@ onBeforeUnmount(() => {
             @click="handleIgnition(true)"
             class="kip-btn-ghost px-4 py-2 text-xs font-mono font-bold uppercase text-white/70 hover:text-white border-white/20"
           >
-            Bypass & Ignite
+            Force Ignite
           </button>
           <button
             @click="repairEnvironment(selectedVersion, selectedLoader)"
             :disabled="isRepairing"
-            class="kip-btn-primary px-5 py-2 text-xs bg-amber-500 hover:bg-amber-400 text-black font-black uppercase tracking-wider flex items-center gap-2"
+            class="kip-btn-primary px-5 py-2 text-xs bg-amber-500 hover:bg-amber-400 text-black font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer"
           >
             <Loader v-if="isRepairing" class="w-3.5 h-3.5 animate-spin" />
             <Wrench v-else class="w-3.5 h-3.5" />
-            <span>{{ isRepairing ? 'Healing...' : 'Auto-Repair (1-Click)' }}</span>
+            <span>{{ isRepairing ? 'Healing...' : 'Auto-Repair' }}</span>
           </button>
         </div>
       </section>
@@ -541,9 +543,9 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="pt-2.5 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-white/40">
-            <span>MC {{ selectedVersion }}</span>
+            <span>MC {{ preset.id === 'forge_lts' ? '1.20.1' : '1.21.4' }}</span>
             <span :class="activePresetId === preset.id ? 'text-emerald-400 font-bold' : ''">
-              {{ activePresetId === preset.id ? 'ACTIVE' : 'SELECT' }}
+              {{ activePresetId === preset.id ? 'SELECTED' : 'CHOOSE' }}
             </span>
           </div>
         </article>
@@ -570,12 +572,12 @@ onBeforeUnmount(() => {
               <button
                 @click="triggerDownloadVersion"
                 :disabled="isDownloadingVersion"
-                class="text-[9px] font-mono text-emerald-400 hover:text-emerald-300 uppercase font-black flex items-center gap-1"
+                class="text-[9px] font-mono text-emerald-400 hover:text-emerald-300 uppercase font-black flex items-center gap-1 cursor-pointer"
                 title="Download this version jar and assets"
               >
                 <Loader v-if="isDownloadingVersion" class="w-2.5 h-2.5 animate-spin" />
                 <Download v-else class="w-2.5 h-2.5" />
-                <span>{{ isDownloadingVersion ? 'Fetching...' : 'Acquire JAR' }}</span>
+                <span>{{ isDownloadingVersion ? 'Fetching...' : 'Acquire Release' }}</span>
               </button>
             </div>
 
@@ -589,7 +591,7 @@ onBeforeUnmount(() => {
                   v-model="selectedVersion"
                   type="text"
                   class="bg-transparent font-extrabold text-sm text-white focus:outline-none font-mono w-40"
-                  placeholder="e.g. 1.21.4, b1.7.3"
+                  placeholder="e.g. 1.21.4, 1.20.1"
                   @click.stop
                 >
               </div>
@@ -606,7 +608,7 @@ onBeforeUnmount(() => {
                   <input
                     v-model="versionSearchQuery"
                     type="text"
-                    placeholder="Search all versions..."
+                    placeholder="Filter versions..."
                     class="w-full bg-black/60 border border-white/10 rounded-lg pl-8 pr-2 py-1 text-xs text-white font-mono"
                     @click.stop
                   >
@@ -616,31 +618,31 @@ onBeforeUnmount(() => {
               <div class="px-3 flex gap-1 font-mono text-[9px] uppercase">
                 <button
                   @click.stop="activeVersionTypeFilter = 'release'"
-                  class="px-2 py-0.5 rounded border"
+                  class="px-2 py-0.5 rounded border cursor-pointer"
                   :class="activeVersionTypeFilter === 'release' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'text-white/40 border-transparent'"
                 >
                   Releases
                 </button>
                 <button
                   @click.stop="activeVersionTypeFilter = 'snapshot'"
-                  class="px-2 py-0.5 rounded border"
+                  class="px-2 py-0.5 rounded border cursor-pointer"
                   :class="activeVersionTypeFilter === 'snapshot' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' : 'text-white/40 border-transparent'"
                 >
                   Snapshots
                 </button>
                 <button
                   @click.stop="activeVersionTypeFilter = 'historical'"
-                  class="px-2 py-0.5 rounded border"
+                  class="px-2 py-0.5 rounded border cursor-pointer"
                   :class="activeVersionTypeFilter === 'historical' ? 'bg-purple-500/20 text-purple-400 border-purple-500/40' : 'text-white/40 border-transparent'"
                 >
-                  Beta / Alpha
+                  Legacy
                 </button>
                 <button
                   @click.stop="activeVersionTypeFilter = 'all'"
-                  class="px-2 py-0.5 rounded border"
+                  class="px-2 py-0.5 rounded border cursor-pointer"
                   :class="activeVersionTypeFilter === 'all' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' : 'text-white/40 border-transparent'"
                 >
-                  All ({{ allManifestVersions.length }})
+                  All
                 </button>
               </div>
 
@@ -698,7 +700,7 @@ onBeforeUnmount(() => {
 
         <div class="grid grid-cols-2 gap-4">
           <div>
-            <label class="block text-[9px] text-white/40 uppercase tracking-widest font-black mb-1.5 font-mono">Heap RAM Allocation</label>
+            <label class="block text-[9px] text-white/40 uppercase tracking-widest font-black mb-1.5 font-mono">JVM Memory Allocation</label>
             <div class="flex gap-1.5">
               <button
                 v-for="ram in [0, 4, 6, 8, 12, 16]"
@@ -733,6 +735,16 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
+
+        <div>
+          <label class="block text-[9px] text-white/40 uppercase tracking-widest font-black mb-1.5 font-mono">Custom JVM Arguments</label>
+          <input
+            v-model="customJvmInput"
+            type="text"
+            placeholder="-XX:+UseG1GC -XX:+ParallelRefProcEnabled"
+            class="kip-input py-2.5 text-xs font-mono"
+          >
+        </div>
       </div>
     </main>
 
@@ -743,7 +755,7 @@ onBeforeUnmount(() => {
           <AlertCircle v-else class="w-4 h-4 text-amber-400 shrink-0" />
           <div class="min-w-0">
             <span class="text-[8px] font-mono text-white/40 uppercase block font-bold leading-none">Runtime</span>
-            <span class="text-[11px] font-bold text-white truncate block mt-0.5">{{ preflightReport?.javaVersion || 'JDK Resolving' }}</span>
+            <span class="text-[11px] font-bold text-white truncate block mt-0.5">{{ preflightReport?.javaVersion || 'Resolving JDK' }}</span>
           </div>
         </div>
 
@@ -752,7 +764,7 @@ onBeforeUnmount(() => {
           <div class="min-w-0">
             <span class="text-[8px] font-mono text-white/40 uppercase block font-bold leading-none">Integrity</span>
             <span class="text-[11px] font-bold text-white truncate block mt-0.5">
-              {{ hasCriticalConflicts ? 'Conflicts' : 'Clean' }}
+              {{ hasCriticalConflicts ? 'Warning' : 'Verified' }}
             </span>
           </div>
         </div>
@@ -770,7 +782,7 @@ onBeforeUnmount(() => {
           <div class="min-w-0">
             <span class="text-[8px] font-mono text-white/40 uppercase block font-bold leading-none">Process</span>
             <span class="text-[11px] font-bold truncate block mt-0.5" :class="state.isMcRunning ? 'text-emerald-400' : 'text-white/70'">
-              {{ state.isMcRunning ? 'Active' : 'Standby' }}
+              {{ state.isMcRunning ? 'Running' : 'Standby' }}
             </span>
           </div>
         </div>
@@ -784,7 +796,7 @@ onBeforeUnmount(() => {
       >
         <template v-if="!isLaunching">
           <Zap class="w-8 h-8 fill-current" />
-          <span>IGNITE ENGINE</span>
+          <span>IGNITE INSTANCE</span>
         </template>
         <template v-else>
           <Loader class="w-8 h-8 animate-spin" />

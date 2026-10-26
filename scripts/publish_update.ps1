@@ -1,6 +1,6 @@
 param (
     [Parameter(Mandatory = $false)]
-    [string]$Version = "2.0.0"
+    [string]$Version = "2.1.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,7 +9,7 @@ Set-Location -Path "$PSScriptRoot\.."
 
 $CleanVersion = $Version.TrimStart("v").Trim()
 if ($CleanVersion -notmatch "^\d+\.\d+\.\d+$") {
-    Write-Error "Version must follow semver format X.Y.Z (e.g. 2.0.0)"
+    Write-Error "Version must follow semver format X.Y.Z (e.g. 2.1.0)"
 }
 
 Write-Host "Starting release orchestration for K.I.P. Engine v$CleanVersion..."
@@ -71,13 +71,13 @@ if (Test-Path $KeyPath) {
     $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw $KeyPath
 }
 
-Write-Host "Compiling Rust release executable and packaging installer..."
+Write-Host "Compiling Rust release binary and building installer..."
 npm run tauri build
 
 git add -A
 
 $Tag = "v$CleanVersion"
-git commit -m "Release $Tag (GPL-3.0) - Flagship 2.0 Engine Architecture, HugeTLB KMM, Zero-GC Chunk Matrix, Silent Process Subsystem"
+git commit -m "Release $Tag (GPL-3.0) - Voxel Engine Multithreading, Zero-Lag TCP/IP Stack, Store 2.0 & Launch Pipeline Hardening"
 git tag -a $Tag -m "Release $Tag" -f
 
 $Branch = (git rev-parse --abbrev-ref HEAD).Trim()

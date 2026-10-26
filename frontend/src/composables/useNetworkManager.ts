@@ -6,6 +6,7 @@ import type {
   PteroServerDto,
   NetworkActionResultDto,
   DockerCoreType,
+  DiscoveredLanServerDto,
 } from '../types/network'
 import { showToast } from './useToasts'
 import { t } from './useI18n'
@@ -15,14 +16,18 @@ export function useNetworkManager() {
   const netIp = ref('')
   const isPinging = ref(false)
   const pingResult = ref<ServerPingResultDto | null>(null)
-  const recentPings = ref<string[]>(['mc.hypixel.net', '2b2t.org'])
+  const recentPings = ref<string[]>(['mc.hypixel.net', '2b2t.org', 'play.cubecraft.net', 'gommehd.net'])
 
-  // Tunnel state
+  const isTcpOptimized = ref(false)
+  const isOptimizingTcp = ref(false)
+
+  const discoveredLanServers = ref<DiscoveredLanServerDto[]>([])
+  let lanDiscoveryInterval: ReturnType<typeof setInterval> | null = null
+
   const tunnelPort = ref('25565')
   const activeTunnelEndpoint = ref('')
   let unlistenTunnel: UnlistenFn | null = null
 
-  // Pterodactyl state
   const pteroUrl = ref('')
   const pteroKey = ref('')
   const pteroServers = ref<PteroServerDto[]>([])
@@ -30,7 +35,6 @@ export function useNetworkManager() {
   const isPteroLoading = ref(false)
   let pteroInterval: ReturnType<typeof setInterval> | null = null
 
-  // Docker state
   const dockerCore = ref<DockerCoreType>('paper')
   const dockerVer = ref('1.21.1')
   const dockerPort = ref('25565')
@@ -48,10 +52,10 @@ export function useNetworkManager() {
         pingResult.value = res
         if (!recentPings.value.includes(host)) {
           recentPings.value.unshift(host)
-          if (recentPings.value.length > 5) recentPings.value.pop()
+          if (recentPings.value.length > 6) recentPings.value.pop()
         }
       } else {
-        showToast(t('Offline'), t('Could not connect to server.'), 'danger')
+        showToast(t('Offline'), t('Could not connect to server or SRV resolution timed out.'), 'danger')
       }
       return res
     } catch (err) {
@@ -63,10 +67,57 @@ export function useNetworkManager() {
     }
   }
 
-  function startReverseTunnel(): void {
-    const port = tunnelPort.value.trim()
+  async function checkTcpRegistryStatus(): Promise<void> {
+    try {
+      isTcpOptimized.value = await invoke<boolean>('booster_get_tcp_registry_status')
+    } catch {
+      isTcpOptimized.value = false
+    }
+  }
+
+  async function toggleTcpRegistryOptimizer(enable: boolean): Promise<void> {
+    isOptimizingTcp.value = true
+    try {
+      const ok = await invoke<boolean>('booster_optimize_tcp_registry', { enable })
+      if (ok) {
+        isTcpOptimized.value = enable
+        showToast(
+          t('TCP Latency Engine'),
+          enable ? 'TcpAckFrequency=1 & TCPNoDelay=1 injected. PvP hit-reg optimized.' : 'Windows TCP defaults restored.',
+          'success'
+        )
+      } else {
+        showToast(t('Error'), 'Administrator privileges required to write TCP parameters.', 'danger')
+      }
+    } catch (err: unknown) {
+      showToast(t('Registry Error'), String(err), 'danger')
+    } finally {
+      isOptimizingTcp.value = false
+    }
+  }
+
+  function startLanBroadcastListener(): void {
+    invoke('start_lan_discovery').catch(() => {})
+    stopLanBroadcastListener()
+    lanDiscoveryInterval = setInterval(async () => {
+      try {
+        discoveredLanServers.value = await invoke<DiscoveredLanServerDto[]>('get_discovered_lan_servers')
+      } catch {}
+    }, 2000)
+  }
+
+  function stopLanBroadcastListener(): void {
+    if (lanDiscoveryInterval) {
+      clearInterval(lanDiscoveryInterval)
+      lanDiscoveryInterval = null
+    }
+  }
+
+  function startReverseTunnel(portOverride?: string): void {
+    const port = (portOverride || tunnelPort.value).trim()
     if (!port) return
-    showToast(t('Tunnel'), t('Starting reverse tunnel...'), 'info')
+    tunnelPort.value = port
+    showToast(t('Tunnel'), t('Opening reverse TCP bridge...'), 'info')
     invoke('start_tunnel', { port }).catch((err) => {
       showToast(t('Tunnel Fault'), String(err), 'danger')
     })
@@ -166,6 +217,8 @@ export function useNetworkManager() {
         activeTunnelEndpoint.value = e.payload
       }
     })
+    await checkTcpRegistryStatus()
+    startLanBroadcastListener()
   }
 
   function cleanup(): void {
@@ -174,6 +227,7 @@ export function useNetworkManager() {
       unlistenTunnel = null
     }
     stopPteroPolling()
+    stopLanBroadcastListener()
   }
 
   return {
@@ -181,6 +235,9 @@ export function useNetworkManager() {
     isPinging,
     pingResult,
     recentPings,
+    isTcpOptimized,
+    isOptimizingTcp,
+    discoveredLanServers,
     tunnelPort,
     activeTunnelEndpoint,
     pteroUrl,
@@ -193,6 +250,8 @@ export function useNetworkManager() {
     dockerPort,
     isDockerDeploying,
     pingTargetServer,
+    checkTcpRegistryStatus,
+    toggleTcpRegistryOptimizer,
     startReverseTunnel,
     stopReverseTunnel,
     connectPterodactyl,

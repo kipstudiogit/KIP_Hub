@@ -1,25 +1,9 @@
-pub mod booster;
-pub mod builder;
-pub mod console;
-pub mod content;
-pub mod launch;
-pub mod media;
-pub mod network;
-pub mod nexus;
-pub mod overlay;
-pub mod settings;
-pub mod store;
-pub mod support;
-pub mod system;
-pub mod tools;
-pub mod window;
-pub mod worlds;
-
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Duration;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -48,6 +32,23 @@ use crate::swarm_manager::SwarmManager;
 use crate::tunnel_manager::TunnelManager;
 use crate::vcs_manager::VCSManager;
 use crate::world_manager::WorldManager;
+
+pub mod booster;
+pub mod builder;
+pub mod console;
+pub mod content;
+pub mod launch;
+pub mod media;
+pub mod network;
+pub mod nexus;
+pub mod overlay;
+pub mod settings;
+pub mod store;
+pub mod support;
+pub mod system;
+pub mod tools;
+pub mod window;
+pub mod worlds;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,7 +86,11 @@ pub struct AppState {
 
 #[tauri::command]
 pub async fn get_all_minecraft_versions() -> Result<Vec<McVersionEntryDto>, AppError> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
     let url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
     if let Ok(res) = client.get(url).send().await {
         if let Ok(data) = res.json::<Value>().await {
@@ -105,9 +110,21 @@ pub async fn get_all_minecraft_versions() -> Result<Vec<McVersionEntryDto>, AppE
                     .collect();
 
                 let modern_additions = [
-                    McVersionEntryDto { id: "26.3".to_string(), version_type: "release".to_string(), release_time: "2026-03-24T12:00:00Z".to_string() },
-                    McVersionEntryDto { id: "26.2".to_string(), version_type: "release".to_string(), release_time: "2026-02-18T10:00:00Z".to_string() },
-                    McVersionEntryDto { id: "26.1".to_string(), version_type: "release".to_string(), release_time: "2026-01-14T09:00:00Z".to_string() },
+                    McVersionEntryDto {
+                        id: "26.3".to_string(),
+                        version_type: "release".to_string(),
+                        release_time: "2026-03-24T12:00:00Z".to_string(),
+                    },
+                    McVersionEntryDto {
+                        id: "26.2".to_string(),
+                        version_type: "release".to_string(),
+                        release_time: "2026-02-18T10:00:00Z".to_string(),
+                    },
+                    McVersionEntryDto {
+                        id: "26.1".to_string(),
+                        version_type: "release".to_string(),
+                        release_time: "2026-01-14T09:00:00Z".to_string(),
+                    },
                 ];
 
                 for item in modern_additions.into_iter().rev() {
@@ -133,15 +150,38 @@ pub async fn get_all_minecraft_versions() -> Result<Vec<McVersionEntryDto>, AppE
         McVersionEntryDto { id: "1.21.1".to_string(), version_type: "release".to_string(), release_time: "2024-08-08T12:00:00Z".to_string() },
         McVersionEntryDto { id: "1.21".to_string(), version_type: "release".to_string(), release_time: "2024-06-13T10:30:00Z".to_string() },
         McVersionEntryDto { id: "1.20.6".to_string(), version_type: "release".to_string(), release_time: "2024-04-29T09:15:00Z".to_string() },
+        McVersionEntryDto { id: "1.20.5".to_string(), version_type: "release".to_string(), release_time: "2024-04-23T10:00:00Z".to_string() },
         McVersionEntryDto { id: "1.20.4".to_string(), version_type: "release".to_string(), release_time: "2023-12-07T11:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.20.3".to_string(), version_type: "release".to_string(), release_time: "2023-12-05T09:00:00Z".to_string() },
         McVersionEntryDto { id: "1.20.2".to_string(), version_type: "release".to_string(), release_time: "2023-09-21T10:00:00Z".to_string() },
         McVersionEntryDto { id: "1.20.1".to_string(), version_type: "release".to_string(), release_time: "2023-06-12T08:30:00Z".to_string() },
+        McVersionEntryDto { id: "1.20".to_string(), version_type: "release".to_string(), release_time: "2023-06-07T10:00:00Z".to_string() },
         McVersionEntryDto { id: "1.19.4".to_string(), version_type: "release".to_string(), release_time: "2023-03-14T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.19.3".to_string(), version_type: "release".to_string(), release_time: "2022-12-07T10:00:00Z".to_string() },
         McVersionEntryDto { id: "1.19.2".to_string(), version_type: "release".to_string(), release_time: "2022-08-05T11:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.19.1".to_string(), version_type: "release".to_string(), release_time: "2022-07-27T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.19".to_string(), version_type: "release".to_string(), release_time: "2022-06-07T10:00:00Z".to_string() },
         McVersionEntryDto { id: "1.18.2".to_string(), version_type: "release".to_string(), release_time: "2022-02-28T12:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.18.1".to_string(), version_type: "release".to_string(), release_time: "2021-12-10T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.18".to_string(), version_type: "release".to_string(), release_time: "2021-11-30T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.17.1".to_string(), version_type: "release".to_string(), release_time: "2021-07-06T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.17".to_string(), version_type: "release".to_string(), release_time: "2021-06-08T10:00:00Z".to_string() },
         McVersionEntryDto { id: "1.16.5".to_string(), version_type: "release".to_string(), release_time: "2021-01-15T09:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.16.4".to_string(), version_type: "release".to_string(), release_time: "2020-11-02T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.15.2".to_string(), version_type: "release".to_string(), release_time: "2020-01-21T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.14.4".to_string(), version_type: "release".to_string(), release_time: "2019-07-19T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.13.2".to_string(), version_type: "release".to_string(), release_time: "2018-10-22T10:00:00Z".to_string() },
         McVersionEntryDto { id: "1.12.2".to_string(), version_type: "release".to_string(), release_time: "2017-09-18T08:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.11.2".to_string(), version_type: "release".to_string(), release_time: "2016-12-21T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.10.2".to_string(), version_type: "release".to_string(), release_time: "2016-06-23T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.9.4".to_string(), version_type: "release".to_string(), release_time: "2016-05-10T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.8.9".to_string(), version_type: "release".to_string(), release_time: "2015-12-09T10:00:00Z".to_string() },
         McVersionEntryDto { id: "1.7.10".to_string(), version_type: "release".to_string(), release_time: "2014-06-26T12:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.6.4".to_string(), version_type: "release".to_string(), release_time: "2013-09-19T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.5.2".to_string(), version_type: "release".to_string(), release_time: "2013-05-02T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.4.7".to_string(), version_type: "release".to_string(), release_time: "2013-01-09T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "1.2.5".to_string(), version_type: "release".to_string(), release_time: "2012-04-04T10:00:00Z".to_string() },
+        McVersionEntryDto { id: "b1.7.3".to_string(), version_type: "old_beta".to_string(), release_time: "2011-07-08T10:00:00Z".to_string() },
     ])
 }
 
@@ -160,7 +200,7 @@ pub async fn kip_login(
         .api
         .kip_auth_login(&clean_user, &password)
         .await
-        .map_err(|e| AppError::Config(e))?;
+        .map_err(AppError::Config)?;
 
     if res["success"].as_bool().unwrap_or(false) {
         if let Some(token) = res["token"].as_str() {
@@ -194,7 +234,7 @@ pub async fn kip_register(
         .api
         .kip_auth_register(&clean_user, &email_str, &password)
         .await
-        .map_err(|e| AppError::Config(e))?;
+        .map_err(AppError::Config)?;
 
     if res["success"].as_bool().unwrap_or(false) {
         if let Some(token) = res["token"].as_str() {
@@ -240,7 +280,7 @@ pub fn kip_logout(state: State<'_, AppState>) -> bool {
 
 #[tauri::command]
 pub async fn ms_auth_start(state: State<'_, AppState>) -> Result<Value, AppError> {
-    let res = state.auth.get_device_code().await.map_err(|e| AppError::Config(e))?;
+    let res = state.auth.get_device_code().await.map_err(AppError::Config)?;
     if let Some(uri) = res["verification_uri"].as_str() {
         let _ = open::that(uri);
     }
@@ -249,7 +289,7 @@ pub async fn ms_auth_start(state: State<'_, AppState>) -> Result<Value, AppError
 
 #[tauri::command]
 pub async fn ms_auth_poll(state: State<'_, AppState>, device_code: String) -> Result<bool, AppError> {
-    match state.auth.poll_token(&device_code).await.map_err(|e| AppError::Config(e))? {
+    match state.auth.poll_token(&device_code).await.map_err(AppError::Config)? {
         Some(res) => {
             if let Some(acc) = res["access_token"].as_str() {
                 config::set_secret("ms_access_token", acc);
@@ -543,7 +583,7 @@ pub async fn generate_auto_build(
         .builder
         .generate_mod_list(&prompt, &mc_version, &loader)
         .await
-        .map_err(|e| AppError::Config(e))?;
+        .map_err(AppError::Config)?;
     let foundation: Vec<String> = state
         .builder
         .get_foundation_mods(&loader)
@@ -588,7 +628,7 @@ pub async fn swarm_seed_start(
     state
         .swarm
         .start_seeding(target_dir.to_str().unwrap_or(""))
-        .map_err(|e| AppError::Config(e))
+        .map_err(AppError::Config)
 }
 
 #[tauri::command]

@@ -10,7 +10,6 @@ use walkdir::WalkDir;
 use std::os::windows::process::CommandExt;
 
 pub const CREATE_NO_WINDOW: u32 = 0x08000000;
-pub const DETACHED_PROCESS: u32 = 0x00000008;
 
 static CACHED_JAVA_VERSION: Mutex<Option<String>> = Mutex::new(None);
 
@@ -24,7 +23,7 @@ impl SystemUtils {
         cmd.stderr(Stdio::piped());
         #[cfg(target_os = "windows")]
         {
-            cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+            cmd.creation_flags(CREATE_NO_WINDOW);
         }
         cmd
     }
@@ -122,7 +121,7 @@ impl SystemUtils {
             let name = process.name().to_string_lossy().to_ascii_lowercase();
             if name == "java.exe" || name == "javaw.exe" || name == "java" {
                 let cmd = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ").to_ascii_lowercase();
-                if cmd.contains("minecraft") || cmd.contains("net.fabricmc") || cmd.contains("net.minecraftforge") {
+                if cmd.contains("minecraft") || cmd.contains("net.fabricmc") || cmd.contains("net.minecraftforge") || cmd.contains("net.neoforged") {
                     if process.kill() {
                         killed_count += 1;
                     }
@@ -160,17 +159,19 @@ impl SystemUtils {
 
         if let Ok(output) = cmd.output() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
-            if stderr.contains("version") {
-                let parts: Vec<&str> = stderr.split('"').collect();
-                if parts.len() > 1 {
-                    let parsed = parts[1].to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
+            let text = format!("{}{}", stdout, stderr);
+            if text.contains("version") {
+                let quote_parts: Vec<&str> = text.split('"').collect();
+                if quote_parts.len() > 1 {
+                    let parsed = quote_parts[1].to_string();
                     *CACHED_JAVA_VERSION.lock() = Some(parsed.clone());
                     return parsed;
                 }
             }
         }
 
-        let fallback = "8.0.0".to_string();
+        let fallback = "17.0.10".to_string();
         *CACHED_JAVA_VERSION.lock() = Some(fallback.clone());
         fallback
     }
@@ -191,7 +192,7 @@ impl SystemUtils {
             }
         };
 
-        let args = format!("-Xmx{}G -Xms256M -XX:+UseG1GC", target_gb);
+        let args = format!("-Xmx{}G -Xms512M -XX:+UseG1GC -XX:+ParallelRefProcEnabled", target_gb);
         (target_gb, args)
     }
 

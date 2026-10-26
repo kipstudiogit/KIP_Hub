@@ -13,7 +13,7 @@ if ($GitStatus) {
 }
 
 if ($Version -notmatch "^v\d+\.\d+\.\d+") {
-    Write-Error "Invalid version format. Use semver format starting with 'v', e.g. v1.5.6"
+    Write-Error "Invalid version format. Use semver format starting with 'v', e.g. v2.1.0"
 }
 
 Write-Host "Creating git tag $Version..."

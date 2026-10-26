@@ -88,13 +88,21 @@ export function useStoreManager() {
     await searchCatalog(false)
   }
 
-  async function fetchProjectDetails(projectId: string): Promise<StoreDetailsResponseDto | null> {
+  async function fetchProjectDetails(
+    projectId: string,
+    gameVersionOverride?: string | null
+  ): Promise<StoreDetailsResponseDto | null> {
+    const targetGameVersion =
+      gameVersionOverride !== undefined
+        ? (gameVersionOverride || null)
+        : (gameVersion.value || null)
+
     try {
       return await invoke<StoreDetailsResponseDto>('get_store_project_details', {
         provider: provider.value,
         projectId,
         loader: loader.value || null,
-        gameVersion: gameVersion.value || null,
+        gameVersion: targetGameVersion,
       })
     } catch (err) {
       const error = err as BackendAppError

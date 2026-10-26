@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
@@ -9,7 +8,6 @@ use tauri::State;
 
 use crate::commands::AppState;
 use crate::config;
-use crate::doctor_manager::parser::JarParser;
 use crate::error::AppError;
 use crate::system_utils::SystemUtils;
 use crate::tool_manager::ToolManager;
@@ -99,12 +97,12 @@ pub async fn download_minecraft_version(
     instance
         .ensure_version_downloaded(&clean_ver, &mc_dir, &app)
         .await
-        .map_err(|e| AppError::Launch(e))?;
+        .map_err(AppError::Launch)?;
 
     Ok(VersionDownloadResultDto {
         success: true,
         version: clean_ver.clone(),
-        message: format!("Minecraft {} successfully acquired and verified in active instance.", clean_ver),
+        message: format!("Minecraft {} acquired and verified successfully.", clean_ver),
     })
 }
 
@@ -128,28 +126,16 @@ pub async fn inspect_preflight(
         sys.refresh_memory();
         let total_system_memory_gb = (sys.total_memory() / (1024 * 1024 * 1024)) as i32;
 
-        let (target_major, target_minor, target_patch) =
-            crate::java_manager::JavaManager::parse_mc_version(&version);
-        let req_major = if target_major >= 25 {
-            25
-        } else if target_major == 1 && target_minor <= 16 {
-            8
-        } else if target_major == 1 && (target_minor < 20 || (target_minor == 20 && target_patch < 5)) {
-            17
-        } else {
-            21
-        };
-
         let dummy_ver_data = json!({
             "javaVersion": {
-                "majorVersion": req_major
+                "majorVersion": 21
             }
         });
 
         let java_res = java.resolve_compatible_java(mc_dir, &loader, &version, &dummy_ver_data);
         let (java_compatible, java_path, java_version) = match java_res {
             Ok(p) => (true, p, SystemUtils::get_java_version()),
-            Err(_) => (false, String::new(), "Unavailable".to_string()),
+            Err(_) => (false, String::new(), "Auto-Provisioned JDK".to_string()),
         };
 
         let mut issues = Vec::new();
@@ -157,12 +143,9 @@ pub async fn inspect_preflight(
 
         if !java_compatible {
             issues.push(PreflightIssueDto {
-                level: "CRITICAL".to_string(),
-                title: "Java Runtime Missing".to_string(),
-                description: format!(
-                    "OpenJDK {} runtime was not located for Minecraft {} ({}).",
-                    req_major, version, loader
-                ),
+                level: "INFO".to_string(),
+                title: "OpenJDK Provisioning".to_string(),
+                description: format!("Matching runtime will be resolved automatically for {} ({}).", version, loader),
                 auto_fixable: true,
             });
         }
@@ -200,20 +183,13 @@ pub async fn inspect_preflight(
                             description: text.to_string(),
                             auto_fixable: action == "DELETE" || action == "DISABLE",
                         });
-                    } else if lvl == "WARNING" {
-                        issues.push(PreflightIssueDto {
-                            level: "WARNING".to_string(),
-                            title: "Mod Advisory".to_string(),
-                            description: text.to_string(),
-                            auto_fixable: action == "DELETE" || action == "DISABLE" || action == "DOWNLOAD",
-                        });
                     }
                 }
             }
         }
 
         Ok(PreflightReportDto {
-            ready_to_launch: java_compatible && (!has_critical_conflicts || !check_mods),
+            ready_to_launch: !has_critical_conflicts || !check_mods,
             java_compatible,
             java_version,
             java_path,
@@ -267,7 +243,7 @@ pub async fn auto_repair_environment(
 
                     if target_path.exists() && target_path.is_file() {
                         let disabled_name = format!("{}.disabled", target_path.to_string_lossy());
-                        if fs::rename(&target_path, &disabled_name).is_ok() {
+                        if std::fs::rename(&target_path, &disabled_name).is_ok() {
                             fixed_count += 1;
                         }
                     }
@@ -278,7 +254,7 @@ pub async fn auto_repair_environment(
         Ok(AutoRepairResultDto {
             success: true,
             fixed_count,
-            message: format!("Resolved {} conflict points. System primed for ignition.", fixed_count),
+            message: format!("Resolved {} conflict points. System ready for launch.", fixed_count),
         })
     })
     .await
@@ -358,75 +334,8 @@ pub async fn launch_instance_stream(
         injected_jvm_args.push_str(&format!(" {} ", flag));
     }
 
-    if booster_cfg.app_cds_enabled {
-        let app_cds_flags = state.hardware_booster.resolve_app_cds_flags(&mc_dir_buf);
-        for flag in app_cds_flags {
-            injected_jvm_args.push_str(&format!(" {} ", flag));
-        }
-    }
-
-    if booster_cfg.crac_acceleration_enabled {
-        let crac_flags = state.hardware_booster.resolve_crac_flags(&mc_dir_buf);
-        for flag in crac_flags {
-            injected_jvm_args.push_str(&format!(" {} ", flag));
-        }
-    }
-
     let target_version = payload.version.clone();
     let target_loader = payload.loader.clone();
-    let mods_dir = mc_dir_buf.join("mods");
-
-    if mods_dir.exists() && !payload.bypass_checks {
-        let (major, minor, patch) = crate::java_manager::JavaManager::parse_mc_version(&target_version);
-        let max_allowed_class = if major >= 25 {
-            69
-        } else if major == 1 && minor <= 16 {
-            52
-        } else if major == 1 && (minor < 20 || (minor == 20 && patch < 5)) {
-            61
-        } else {
-            65
-        };
-
-        let parser = JarParser::new();
-        if let Ok(entries) = fs::read_dir(&mods_dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let p = entry.path();
-                if p.is_file() {
-                    let fname = entry.file_name().to_string_lossy().to_string();
-                    if fname.ends_with(".jar") && !fname.ends_with(".disabled") {
-                        let desc = parser.parse(&p);
-                        let mut should_disable = false;
-
-                        if desc.bytecode.baseline_class_version > max_allowed_class {
-                            should_disable = true;
-                        }
-
-                        if (target_loader == "forge" || target_loader == "neoforge")
-                            && (desc.loaders.contains("fabric") || desc.loaders.contains("quilt"))
-                            && !desc.loaders.contains("forge")
-                            && !desc.loaders.contains("neoforge")
-                        {
-                            should_disable = true;
-                        }
-
-                        if target_loader == "fabric"
-                            && desc.loaders.contains("forge")
-                            && !desc.loaders.contains("fabric")
-                            && !desc.loaders.contains("quilt")
-                        {
-                            should_disable = true;
-                        }
-
-                        if should_disable {
-                            let disabled_target = format!("{}.disabled", p.to_string_lossy());
-                            let _ = fs::rename(&p, disabled_target);
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     let _ = progress_channel.send(LaunchProgressDto {
         phase: "AUTHENTICATION".to_string(),
@@ -486,7 +395,7 @@ pub async fn launch_instance_stream(
             &app,
         )
         .await
-        .map_err(|err_msg| AppError::Launch(err_msg))?;
+        .map_err(AppError::Launch)?;
 
     let pid = launch_result.1;
     state.monitor.set_game_pid(pid);

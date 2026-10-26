@@ -306,7 +306,7 @@ onBeforeUnmount(() => {
           @click="toggleWidget('chunks')"
           class="p-2 rounded-xl transition border cursor-pointer"
           :class="widgets.chunks.show ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow' : 'bg-white/5 border-transparent text-white/50 hover:text-white'"
-          title="Quantum Chunk Matrix"
+          title="Voxel Engine • Chunk Pre-Generator"
         >
           <Compass class="w-4 h-4" />
         </button>
@@ -427,7 +427,7 @@ onBeforeUnmount(() => {
         >
           <div @mousedown="startDrag($event, 'chunks')" class="p-3 bg-emerald-500/10 border-b border-emerald-500/30 flex justify-between items-center cursor-move">
             <span class="text-xs font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2 font-mono">
-              <Compass class="w-3.5 h-3.5" /> Quantum Chunks
+              <Compass class="w-3.5 h-3.5" /> Voxel Engine
             </span>
             <div class="flex items-center gap-1" v-if="isInteractive">
               <button @click.stop="togglePinWidget('chunks')" class="p-1 rounded hover:bg-white/10 cursor-pointer" :class="widgets.chunks.pinned ? 'text-emerald-400' : 'text-white/40'">
@@ -446,7 +446,7 @@ onBeforeUnmount(() => {
               <span class="text-emerald-400 font-bold text-[10px]">{{ chunkAcceleratorStatus.simdCapabilities.vectorWidthBits }}-bit AVX</span>
             </div>
             <div class="flex justify-between items-center">
-              <span class="text-white/50 text-[10px]">MCA Ring Buffered:</span>
+              <span class="text-white/50 text-[10px]">MCA Regions Buffered:</span>
               <span class="text-cyan-300 font-bold text-[10px]">{{ chunkAcceleratorStatus.totalChunksBuffered }} chunks</span>
             </div>
             <div class="flex justify-between items-center">
@@ -462,7 +462,7 @@ onBeforeUnmount(() => {
               >
                 <Loader v-if="isPrebakingChunks" class="w-3 h-3 animate-spin" />
                 <Zap v-else class="w-3 h-3 fill-current" />
-                <span>{{ isPrebakingChunks ? `${Math.round(chunkPrebakeProgress.percent)}%` : '1-Click Pre-Bake Cone' }}</span>
+                <span>{{ isPrebakingChunks ? `${Math.round(chunkPrebakeProgress.percent)}%` : '1-Click Pre-Bake' }}</span>
               </button>
             </div>
           </div>

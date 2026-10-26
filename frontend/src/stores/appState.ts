@@ -79,7 +79,7 @@ export const state = reactive<AppState>({
   consoleHtml: 'Awaiting data stream...',
   _consoleBuffer: [],
   aiInputText: '',
-  version: '2.0.0'
+  version: '2.1.0'
 })
 
 export async function loadSettings(): Promise<void> {

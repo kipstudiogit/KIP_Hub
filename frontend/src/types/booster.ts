@@ -41,6 +41,12 @@ export interface ChunkPrebakeProgressDto {
   totalTargetChunks: number
   percent: number
   speedChunksPerSec: number
+  activeWorkers: number
+  throughputMbPerSec: number
+  etaSeconds: number
+  gridSize: number
+  gridCells: number[]
+  recentEvents: string[]
 }
 
 export interface ChunkPrebakeResultDto {
@@ -48,6 +54,7 @@ export interface ChunkPrebakeResultDto {
   generatedChunks: number
   elapsedMs: number
   averageThroughput: number
+  totalBytesMb: number
   message: string
 }
 

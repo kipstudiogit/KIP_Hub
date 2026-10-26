@@ -1,4 +1,7 @@
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::thread;
 use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -16,6 +19,12 @@ pub struct ChunkPrebakeProgressDto {
     pub total_target_chunks: usize,
     pub percent: f64,
     pub speed_chunks_per_sec: f64,
+    pub active_workers: usize,
+    pub throughput_mb_per_sec: f64,
+    pub eta_seconds: u64,
+    pub grid_size: usize,
+    pub grid_cells: Vec<u8>,
+    pub recent_events: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,14 +34,15 @@ pub struct ChunkPrebakeResultDto {
     pub generated_chunks: usize,
     pub elapsed_ms: u64,
     pub average_throughput: f64,
+    pub total_bytes_mb: f64,
     pub message: String,
 }
 
 pub struct PredictiveChunkBaker;
 
 impl PredictiveChunkBaker {
-    fn build_minecraft_chunk_nbt(cx: i32, cz: i32, densities: &[f32], _arena_ptr: *mut u8, _arena_size: usize) -> Vec<u8> {
-        let mut buffer = Vec::with_capacity(4096);
+    fn build_minecraft_chunk_nbt(cx: i32, cz: i32, densities: &[f32]) -> Vec<u8> {
+        let mut buffer = Vec::with_capacity(3072);
         buffer.push(10);
         buffer.extend_from_slice(b"\x00\x00");
 
@@ -121,12 +131,13 @@ impl PredictiveChunkBaker {
     ) -> Result<ChunkPrebakeResultDto, String> {
         let start = Instant::now();
         let rad = radius_chunks.clamp(4, 32);
-        let total_target = (((rad * 2 + 1) * (rad * 2 + 1)) as usize).max(1);
+        let side = (rad * 2 + 1) as usize;
+        let total_target = side * side;
 
         scheduler.reset();
 
-        for dx in -rad..=rad {
-            for dz in -rad..=rad {
+        for dz in -rad..=rad {
+            for dx in -rad..=rad {
                 scheduler.schedule_coordinate(ChunkCoordinate {
                     x: center_x + dx,
                     z: center_z + dz,
@@ -134,74 +145,179 @@ impl PredictiveChunkBaker {
             }
         }
 
-        let mut generated = 0;
+        let mut grid_cells = vec![0u8; total_target];
+        let mut recent_events: Vec<String> = Vec::new();
+
+        let num_cpus = thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .clamp(2, 32);
+
+        let generated_counter = Arc::new(AtomicUsize::new(0));
+        let total_payload_bytes = Arc::new(AtomicUsize::new(0));
         let mut last_report = Instant::now();
         let mut empty_streak = 0;
 
-        while generated < total_target && empty_streak < 4 {
-            let (_, batch) = scheduler.pop_batch_for_phase(64);
+        recent_events.push(format!(
+            "Voxel Engine worker pool initialized ({} hardware threads)",
+            num_cpus
+        ));
+
+        while generated_counter.load(Ordering::Relaxed) < total_target && empty_streak < 4 {
+            let (_, batch) = scheduler.pop_batch_for_phase(num_cpus * 16);
             if batch.is_empty() {
                 empty_streak += 1;
+                thread::yield_now();
                 continue;
             }
             empty_streak = 0;
 
-            for coord in batch {
-                let densities = SimdNoiseEngine::sample_voxel_column_simd(coord.x, coord.z, 384);
-                let slab_size = 65536;
+            for coord in &batch {
+                let gx = (coord.x - (center_x - rad)) as usize;
+                let gz = (coord.z - (center_z - rad)) as usize;
+                if gx < side && gz < side {
+                    grid_cells[gz * side + gx] = 1;
+                }
+            }
 
-                let nbt_payload = if let Some(slab_ptr) = arena.allocate_chunk_slab(slab_size) {
-                    let nbt = Self::build_minecraft_chunk_nbt(coord.x, coord.z, &densities, slab_ptr, slab_size);
-                    arena.release_chunk_slab();
-                    nbt
-                } else {
-                    Self::build_minecraft_chunk_nbt(coord.x, coord.z, &densities, std::ptr::null_mut(), 0)
-                };
+            let chunks_per_worker = (batch.len() + num_cpus - 1) / num_cpus;
+            let chunks_slices: Vec<Vec<ChunkCoordinate>> = batch
+                .chunks(chunks_per_worker)
+                .map(|s| s.to_vec())
+                .collect();
 
-                let rx = coord.x >> 5;
-                let rz = coord.z >> 5;
+            let mut processed_payloads: Vec<ChunkWritePayload> = Vec::with_capacity(batch.len());
 
-                ring_io.push_chunk(ChunkWritePayload {
-                    region_x: rx,
-                    region_z: rz,
-                    chunk_x: coord.x,
-                    chunk_z: coord.z,
-                    raw_nbt: nbt_payload,
-                });
+            thread::scope(|s| {
+                let mut handles = Vec::new();
+                for slice in chunks_slices {
+                    handles.push(s.spawn(move || {
+                        let mut local_results = Vec::with_capacity(slice.len());
+                        for coord in slice {
+                            let _slab = arena.allocate_chunk_slab(4096);
+                            let densities = SimdNoiseEngine::sample_voxel_column_simd(coord.x, coord.z, 384);
+                            let nbt = Self::build_minecraft_chunk_nbt(coord.x, coord.z, &densities);
+                            arena.release_chunk_slab();
 
-                generated += 1;
+                            let rx = coord.x >> 5;
+                            let rz = coord.z >> 5;
 
-                if last_report.elapsed().as_millis() >= 60 || generated == total_target {
+                            local_results.push(ChunkWritePayload {
+                                region_x: rx,
+                                region_z: rz,
+                                chunk_x: coord.x,
+                                chunk_z: coord.z,
+                                raw_nbt: nbt,
+                            });
+                        }
+                        local_results
+                    }));
+                }
+
+                for handle in handles {
+                    if let Ok(results) = handle.join() {
+                        processed_payloads.extend(results);
+                    }
+                }
+            });
+
+            for payload in processed_payloads {
+                let cx = payload.chunk_x;
+                let cz = payload.chunk_z;
+                total_payload_bytes.fetch_add(payload.raw_nbt.len(), Ordering::Relaxed);
+
+                ring_io.push_chunk(payload);
+                let current_gen = generated_counter.fetch_add(1, Ordering::Relaxed) + 1;
+
+                let gx = (cx - (center_x - rad)) as usize;
+                let gz = (cz - (center_z - rad)) as usize;
+                if gx < side && gz < side {
+                    grid_cells[gz * side + gx] = 2;
+                }
+
+                if current_gen % 128 == 0 {
+                    let rx = cx >> 5;
+                    let rz = cz >> 5;
+                    recent_events.push(format!(
+                        "Buffered chunk [{}, {}] into r.{}.{}.mca",
+                        cx, cz, rx, rz
+                    ));
+                    if recent_events.len() > 8 {
+                        recent_events.remove(0);
+                    }
+                }
+
+                if last_report.elapsed().as_millis() >= 40 || current_gen == total_target {
                     let elapsed_secs = start.elapsed().as_secs_f64().max(0.001);
-                    let speed = (generated as f64) / elapsed_secs;
-                    let pct = ((generated as f64) / (total_target as f64)) * 100.0;
+                    let speed = (current_gen as f64) / elapsed_secs;
+                    let throughput = ((total_payload_bytes.load(Ordering::Relaxed) as f64)
+                        / (1024.0 * 1024.0))
+                        / elapsed_secs;
+                    let remaining_chunks = total_target.saturating_sub(current_gen);
+                    let eta = if speed > 0.0 {
+                        (remaining_chunks as f64 / speed).ceil() as u64
+                    } else {
+                        0
+                    };
+
+                    let pct = ((current_gen as f64) / (total_target as f64)) * 100.0;
 
                     let _ = progress_channel.send(ChunkPrebakeProgressDto {
-                        current_chunk: format!("[{}, {}]", coord.x, coord.z),
-                        generated_count: generated,
+                        current_chunk: format!("[{}, {}]", cx, cz),
+                        generated_count: current_gen,
                         total_target_chunks: total_target,
                         percent: (pct * 10.0).round() / 10.0,
                         speed_chunks_per_sec: (speed * 10.0).round() / 10.0,
+                        active_workers: num_cpus,
+                        throughput_mb_per_sec: (throughput * 10.0).round() / 10.0,
+                        eta_seconds: eta,
+                        grid_size: side,
+                        grid_cells: grid_cells.clone(),
+                        recent_events: recent_events.clone(),
                     });
                     last_report = Instant::now();
                 }
             }
         }
 
-        ring_io.flush_batch(instance_path);
+        recent_events.push("Flushing ring buffer to region archives...".to_string());
+        let (saved, bytes) = ring_io.flush_batch(instance_path);
         arena.reset();
 
+        for cell in &mut grid_cells {
+            if *cell == 2 {
+                *cell = 3;
+            }
+        }
+
         let elapsed_ms = start.elapsed().as_millis() as u64;
-        let final_speed = (generated as f64) / (start.elapsed().as_secs_f64().max(0.001));
+        let final_count = generated_counter.load(Ordering::Relaxed);
+        let final_speed = (final_count as f64) / (start.elapsed().as_secs_f64().max(0.001));
+        let total_mb = (bytes as f64) / (1024.0 * 1024.0);
+
+        let _ = progress_channel.send(ChunkPrebakeProgressDto {
+            current_chunk: "Completed".to_string(),
+            generated_count: final_count,
+            total_target_chunks: total_target,
+            percent: 100.0,
+            speed_chunks_per_sec: (final_speed * 10.0).round() / 10.0,
+            active_workers: 0,
+            throughput_mb_per_sec: 0.0,
+            eta_seconds: 0,
+            grid_size: side,
+            grid_cells,
+            recent_events: vec![format!("Committed {} chunks to disk successfully", saved)],
+        });
 
         Ok(ChunkPrebakeResultDto {
             success: true,
-            generated_chunks: generated,
+            generated_chunks: final_count,
             elapsed_ms,
             average_throughput: (final_speed * 10.0).round() / 10.0,
+            total_bytes_mb: (total_mb * 10.0).round() / 10.0,
             message: format!(
-                "Synthesized {} chunks across 4 checkerboard phases in {} ms ({:.1} chunks/sec)",
-                generated, elapsed_ms, final_speed
+                "Synthesized {} chunks using {} threads in {} ms ({:.1} chunks/sec, {:.2} MB)",
+                final_count, num_cpus, elapsed_ms, final_speed, total_mb
             ),
         })
     }

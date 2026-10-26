@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -11,6 +12,8 @@ use tokio::net::{TcpListener, TcpStream};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::io::AsRawSocket;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::io::AsRawFd;
@@ -19,6 +22,17 @@ use std::os::unix::io::AsRawFd;
 #[link(name = "ws2_32")]
 extern "system" {
     fn setsockopt(s: usize, level: i32, optname: i32, optval: *const i8, optlen: i32) -> i32;
+    fn WSAIoctl(
+        s: usize,
+        dwIoControlCode: u32,
+        lpvInBuffer: *const std::ffi::c_void,
+        cbInBuffer: u32,
+        lpvOutBuffer: *mut std::ffi::c_void,
+        cbOutBuffer: u32,
+        lpcbBytesReturned: *mut u32,
+        lpOverlapped: *mut std::ffi::c_void,
+        lpCompletionRoutine: *mut std::ffi::c_void,
+    ) -> i32;
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -31,7 +45,8 @@ const SO_SNDBUF_VAL: i32 = if cfg!(target_os = "windows") { 0x1001 } else { 7 };
 const SO_RCVBUF_VAL: i32 = if cfg!(target_os = "windows") { 0x1002 } else { 8 };
 const IPPROTO_IP_VAL: i32 = 0;
 const IP_TOS_VAL: i32 = if cfg!(target_os = "windows") { 3 } else { 1 };
-const IPTOS_LOWDELAY_VAL: i32 = 0x10;
+const DSCP_EXPEDITED_FORWARDING: i32 = 0xB8;
+const SIO_LOOPBACK_FAST_PATH: u32 = 0x98000010;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -148,6 +163,77 @@ impl NetworkOptimizer {
         }
     }
 
+    pub fn optimize_windows_tcp_registry(enable: bool) -> Result<bool, String> {
+        #[cfg(target_os = "windows")]
+        {
+            let script = if enable {
+                r#"
+                $interfaces = Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+                foreach ($item in $interfaces) {
+                    Set-ItemProperty -Path $item.PSPath -Name "TcpAckFrequency" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+                    Set-ItemProperty -Path $item.PSPath -Name "TCPNoDelay" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+                    Set-ItemProperty -Path $item.PSPath -Name "TcpDelAckTicks" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+                }
+                Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" -Name "NetworkThrottlingIndex" -Value 0xFFFFFFFF -Type DWord -Force -ErrorAction SilentlyContinue
+                Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" -Name "SystemResponsiveness" -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue
+                "#
+            } else {
+                r#"
+                $interfaces = Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+                foreach ($item in $interfaces) {
+                    Remove-ItemProperty -Path $item.PSPath -Name "TcpAckFrequency" -Force -ErrorAction SilentlyContinue
+                    Remove-ItemProperty -Path $item.PSPath -Name "TCPNoDelay" -Force -ErrorAction SilentlyContinue
+                    Remove-ItemProperty -Path $item.PSPath -Name "TcpDelAckTicks" -Force -ErrorAction SilentlyContinue
+                }
+                Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" -Name "NetworkThrottlingIndex" -Value 10 -Type DWord -Force -ErrorAction SilentlyContinue
+                Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" -Name "SystemResponsiveness" -Value 20 -Type DWord -Force -ErrorAction SilentlyContinue
+                "#
+            };
+
+            let mut cmd = Command::new("powershell");
+            cmd.arg("-NoProfile")
+                .arg("-NonInteractive")
+                .arg("-ExecutionPolicy")
+                .arg("Bypass")
+                .arg("-Command")
+                .arg(script);
+            cmd.creation_flags(0x08000000);
+
+            let status = cmd.status().map_err(|e| e.to_string())?;
+            return Ok(status.success());
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = enable;
+            Ok(true)
+        }
+    }
+
+    pub fn get_windows_tcp_registry_status() -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = Command::new("powershell");
+            cmd.arg("-NoProfile")
+                .arg("-NonInteractive")
+                .arg("-Command")
+                .arg(r#"
+                $val = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" -Name "NetworkThrottlingIndex" -ErrorAction SilentlyContinue).NetworkThrottlingIndex
+                if ($val -eq [uint32]::MaxValue -or $val -eq -1) { Write-Output "ACTIVE" } else { Write-Output "DEFAULT" }
+                "#);
+            cmd.creation_flags(0x08000000);
+
+            if let Ok(out) = cmd.output() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                return stdout.contains("ACTIVE");
+            }
+            false
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            false
+        }
+    }
+
     fn read_varint<R: std::io::Read>(reader: &mut R) -> Result<(i32, usize), std::io::Error> {
         let mut value = 0i32;
         let mut position = 0;
@@ -212,7 +298,7 @@ impl NetworkOptimizer {
 
         let (proto_version, _) = Self::read_varint(&mut cursor).ok()?;
         let (host_str_len, _) = Self::read_varint(&mut cursor).ok()?;
-        if host_str_len < 0 || host_str_len > 255 {
+        if !(0..=255).contains(&host_str_len) {
             return None;
         }
 
@@ -248,19 +334,37 @@ impl NetworkOptimizer {
         Some(new_packet)
     }
 
-    fn tune_socket(stream: &TcpStream, anti_bufferbloat: bool, dscp_qos: bool) {
+    fn tune_socket(stream: &TcpStream, anti_bufferbloat: bool, dscp_qos: bool, is_loopback: bool) {
         let _ = stream.set_nodelay(true);
 
         #[cfg(target_os = "windows")]
         unsafe {
             let sock = stream.as_raw_socket() as usize;
+
+            if is_loopback {
+                let option: u32 = 1;
+                let mut bytes_ret: u32 = 0;
+                let _ = WSAIoctl(
+                    sock,
+                    SIO_LOOPBACK_FAST_PATH,
+                    &option as *const _ as *const std::ffi::c_void,
+                    4,
+                    std::ptr::null_mut(),
+                    0,
+                    &mut bytes_ret,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                );
+            }
+
             if anti_bufferbloat {
                 let buf_size: i32 = 8192;
                 setsockopt(sock, SOL_SOCKET_VAL, SO_SNDBUF_VAL, &buf_size as *const _ as *const i8, 4);
                 setsockopt(sock, SOL_SOCKET_VAL, SO_RCVBUF_VAL, &buf_size as *const _ as *const i8, 4);
             }
+
             if dscp_qos {
-                let tos: i32 = IPTOS_LOWDELAY_VAL;
+                let tos: i32 = DSCP_EXPEDITED_FORWARDING;
                 setsockopt(sock, IPPROTO_IP_VAL, IP_TOS_VAL, &tos as *const _ as *const i8, 4);
             }
         }
@@ -274,7 +378,7 @@ impl NetworkOptimizer {
                 setsockopt(sock, SOL_SOCKET_VAL, SO_RCVBUF_VAL, &buf_size as *const _ as *const std::ffi::c_void, 4);
             }
             if dscp_qos {
-                let tos: i32 = IPTOS_LOWDELAY_VAL;
+                let tos: i32 = DSCP_EXPEDITED_FORWARDING;
                 setsockopt(sock, IPPROTO_IP_VAL, IP_TOS_VAL, &tos as *const _ as *const std::ffi::c_void, 4);
             }
         }
@@ -441,7 +545,7 @@ impl NetworkOptimizer {
                         Self::connect_upstream(&host_metric, target_port, &cfg_metric),
                     ).await {
                         Ok(Ok((stream, _))) => {
-                            Self::tune_socket(&stream, cfg_metric.anti_bufferbloat, cfg_metric.dscp_qos_enabled);
+                            Self::tune_socket(&stream, cfg_metric.anti_bufferbloat, cfg_metric.dscp_qos_enabled, false);
                             let ms = ping_start.elapsed().as_millis() as i64;
                             drop(stream);
                             ms
@@ -477,7 +581,7 @@ impl NetworkOptimizer {
                     let quality_grade = if ping_measure <= 0 {
                         "Standby"
                     } else if jitter <= 1.5 && ping_measure < 40 {
-                        "S-Tier Esports (Zero-Bufferbloat)"
+                        "S-Tier Esports (Fast-Path Active)"
                     } else if jitter <= 4.0 && ping_measure < 80 {
                         "A-Tier Optimal Hit-Reg"
                     } else if jitter <= 10.0 {
@@ -520,7 +624,7 @@ impl NetworkOptimizer {
 
             while running_flag.load(Ordering::Relaxed) {
                 if let Ok((mut client_stream, _)) = listener.accept().await {
-                    Self::tune_socket(&client_stream, cfg_clone.anti_bufferbloat, cfg_clone.dscp_qos_enabled);
+                    Self::tune_socket(&client_stream, cfg_clone.anti_bufferbloat, cfg_clone.dscp_qos_enabled, true);
 
                     let target_h = host_clone.clone();
                     let target_p = target_port;
@@ -541,7 +645,7 @@ impl NetworkOptimizer {
                         };
 
                         if let Ok((mut server_stream, _)) = Self::connect_upstream(&target_h, target_p, &target_cfg).await {
-                            Self::tune_socket(&server_stream, target_cfg.anti_bufferbloat, target_cfg.dscp_qos_enabled);
+                            Self::tune_socket(&server_stream, target_cfg.anti_bufferbloat, target_cfg.dscp_qos_enabled, false);
 
                             if server_stream.write_all(&initial_payload).await.is_err() {
                                 return;

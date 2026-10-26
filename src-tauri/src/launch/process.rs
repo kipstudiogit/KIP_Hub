@@ -45,8 +45,7 @@ impl ProcessSupervisor {
             && !launch_version.to_lowercase().contains("fabric")
             && !launch_version.to_lowercase().contains("quilt"))
             && (vanilla_version.starts_with("1.20")
-                || vanilla_version.starts_with("1.21")
-                || vanilla_version.starts_with("2"));
+                || vanilla_version.starts_with("1.21"));
 
         let should_skip_main_jar = is_neoforge || is_modern_forge;
 
@@ -146,6 +145,18 @@ impl ProcessSupervisor {
             return false;
         }
 
+        if java_major < 21 && arg.contains("ZGenerational") {
+            return false;
+        }
+
+        if java_major < 13 && arg.contains("ArchiveClassesAtExit") {
+            return false;
+        }
+
+        if java_major < 11 && arg.contains("UseZGC") {
+            return false;
+        }
+
         if !cfg!(target_os = "linux") && (arg.contains("CRaC") || arg.contains("CRaCCheckpoint") || arg.contains("CRaCRestore")) {
             return false;
         }
@@ -178,7 +189,7 @@ impl ProcessSupervisor {
                     let _ = app_out.emit("appendConsoleLine", line.clone());
                     let mut buf = recent_lines_out.lock();
                     buf.push(line);
-                    if buf.len() > 100 {
+                    if buf.len() > 150 {
                         buf.remove(0);
                     }
                 }
@@ -195,7 +206,7 @@ impl ProcessSupervisor {
                     let _ = app_err.emit("appendConsoleLine", format!("[ERROR] {}", line));
                     let mut buf = recent_lines_err.lock();
                     buf.push(format!("[ERROR] {}", line));
-                    if buf.len() > 100 {
+                    if buf.len() > 150 {
                         buf.remove(0);
                     }
                 }
@@ -211,9 +222,9 @@ impl ProcessSupervisor {
                     if !status.success() {
                         let logs = recent_lines_exit.lock().join("\n");
                         let snippet = format!(
-                            "Process terminated with exit code: {:?}\n\nCrash Log Snippet:\n{}",
+                            "Process terminated with exit code: {:?}\n\nConsole Diagnostics:\n{}",
                             status.code(),
-                            if logs.trim().is_empty() { "No JVM console output received." } else { &logs }
+                            if logs.trim().is_empty() { "No JVM console output received. Verify Java installation and memory allocation." } else { &logs }
                         );
                         let _ = app_exit.emit("showCrashAlert", snippet);
                     }

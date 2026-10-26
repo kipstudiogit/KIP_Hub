@@ -1,19 +1,11 @@
 {
-  "version": "2.0.0",
-  "notes": "Release v2.0.0 (GPL-3.0) - Flagship Engine 2.0: Zero-GC Quantum Chunk Matrix (AVX2/AVX-512 SIMD), HugeTLB Kernel Memory Matrix, Silent Process Creation Subsystem, Full Multilingual Engine, and Deep Security Shield Architecture.",
-  "pub_date": "2026-10-07T19:35:00Z",
+  "version": "2.1.0",
+  "notes": "### K.I.P. Engine v2.1.0 Release\n- Voxel Engine • Chunk Pre-Generator: Multi-threaded parallel MCA region synthesis with live visual radar.\n- Zero-Lag TCP/IP & Network Pro: Windows kernel latency optimizer (TcpAckFrequency=1), Winsock2 Fast-Path, and LAN Multicast auto-discovery.\n- Store Registry 2.0: Comprehensive Minecraft version catalog (1.0 to modern releases) with advanced search and download breakdown.\n- Launch Engine Reliability: Strict SHA-1 client.jar integrity checks, complete asset sync, and UTF-8 encoding fixes.",
+  "pub_date": "2026-10-26T10:30:00Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIG1pbmlzaWduIHNlY3JldCBrZXkKUldRVzVNVkRzY1dEak53V1FqR2k2U0xWdzdGZ2Nkd3RCSlF1Z2t3V2Rtdk00TStWdzg0Q1BnL0EK",
-      "url": "https://github.com/kipstudiogit/KIP_Hub/releases/download/v2.0.0/K.I.P.-Hub_2.0.0_x64_en-US.msi.zip"
-    },
-    "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIG1pbmlzaWduIHNlY3JldCBrZXkKUldRVzVNVkRzY1dEak53V1FqR2k2U0xWdzdGZ2Nkd3RCSlF1Z2t3V2Rtdk00TStWdzg0Q1BnL0EK",
-      "url": "https://github.com/kipstudiogit/KIP_Hub/releases/download/v2.0.0/kip-hub_2.0.0_amd64.AppImage.tar.gz"
-    },
-    "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIG1pbmlzaWduIHNlY3JldCBrZXkKUldRVzVNVkRzY1dEak53V1FqR2k2U0xWdzdGZ2Nkd3RCSlF1Z2t3V2Rtdk00TStWdzg0Q1BnL0EK",
-      "url": "https://github.com/kipstudiogit/KIP_Hub/releases/download/v2.0.0/K.I.P.-Hub.app.tar.gz"
+      "signature": "",
+      "url": "https://github.com/kipstudiogit/KIP_Hub/releases/download/v2.1.0/kip_hub_2.1.0_x64-setup.nsis.zip"
     }
   }
 }

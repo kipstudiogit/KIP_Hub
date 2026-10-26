@@ -106,7 +106,7 @@ impl ChunkAcceleratorManager {
             total_bytes_streamed_mb: (mb * 10.0).round() / 10.0,
             predictive_cone_radius: if self.predictive_radius.load(Ordering::Relaxed) { 32 } else { 16 },
             estimated_tps_gain: tps_boost,
-            engine_signature: "AVX2/AVX-512 Matrix Ring 4.2 (Zero-GC)".to_string(),
+            engine_signature: "Voxel Engine 4.2 • Asynchronous MCA Pipeline".to_string(),
             arena_metrics,
             topology_metrics,
         }

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -27,7 +27,7 @@ pub struct McaRingIoEngine {
 impl McaRingIoEngine {
     pub fn new() -> Self {
         Self {
-            queue: Arc::new(Mutex::new(VecDeque::with_capacity(1024))),
+            queue: Arc::new(Mutex::new(VecDeque::with_capacity(4096))),
             is_flushing: Arc::new(AtomicBool::new(false)),
             total_chunks_saved: Arc::new(AtomicU64::new(0)),
             total_bytes_written: Arc::new(AtomicU64::new(0)),
@@ -36,7 +36,7 @@ impl McaRingIoEngine {
 
     pub fn push_chunk(&self, payload: ChunkWritePayload) {
         let mut guard = self.queue.lock();
-        if guard.len() >= 8192 {
+        if guard.len() >= 16384 {
             guard.pop_front();
         }
         guard.push_back(payload);
@@ -71,7 +71,7 @@ impl McaRingIoEngine {
             }
         }
 
-        let fallback_region = saves_dir.join("Quantum_World").join("region");
+        let fallback_region = saves_dir.join("Voxel_World").join("region");
         let _ = fs::create_dir_all(&fallback_region);
         fallback_region
     }
@@ -119,14 +119,40 @@ impl McaRingIoEngine {
                 Err(_) => continue,
             };
 
+            let mut header = vec![0u8; 8192];
             let current_len = file.metadata().map(|m| m.len()).unwrap_or(0);
-            if current_len < 8192 {
-                let initial_header = vec![0u8; 8192];
-                if file.seek(SeekFrom::Start(0)).is_err() || file.write_all(&initial_header).is_err() {
+
+            if current_len >= 8192 {
+                if file.seek(SeekFrom::Start(0)).is_ok() {
+                    let _ = file.read_exact(&mut header);
+                }
+            } else {
+                if file.seek(SeekFrom::Start(0)).is_err() || file.write_all(&header).is_err() {
                     continue;
                 }
                 let _ = file.flush();
             }
+
+            let mut max_sector = 2u64;
+            for i in 0..1024 {
+                let offset_idx = i * 4;
+                let b0 = header[offset_idx] as u64;
+                let b1 = header[offset_idx + 1] as u64;
+                let b2 = header[offset_idx + 2] as u64;
+                let sector_count = header[offset_idx + 3] as u64;
+                let sector_offset = (b0 << 16) | (b1 << 8) | b2;
+                if sector_offset > 0 && sector_count > 0 {
+                    let end_sec = sector_offset + sector_count;
+                    if end_sec > max_sector {
+                        max_sector = end_sec;
+                    }
+                }
+            }
+
+            let now_unix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs() as u32)
+                .unwrap_or(0);
 
             for item in chunks {
                 let mut compressed = Vec::new();
@@ -135,47 +161,51 @@ impl McaRingIoEngine {
                     continue;
                 }
 
-                let rx_local = ((item.chunk_x % 32) + 32) % 32;
-                let rz_local = ((item.chunk_z % 32) + 32) % 32;
-                let table_offset = ((rx_local + rz_local * 32) * 4) as u64;
+                let rx_local = ((item.chunk_x.rem_euclid(32)) + 32) % 32;
+                let rz_local = ((item.chunk_z.rem_euclid(32)) + 32) % 32;
+                let chunk_idx = (rx_local + rz_local * 32) as usize;
+                let offset_idx = chunk_idx * 4;
+                let ts_idx = 4096 + chunk_idx * 4;
 
-                let sector_len = ((compressed.len() + 5 + 4095) / 4096) as u8;
-                let actual_file_len = file.metadata().map(|m| m.len()).unwrap_or(8192).max(8192);
-                let target_sector = (actual_file_len + 4095) / 4096;
+                let payload_len = (compressed.len() + 5) as u64;
+                let sector_len = ((payload_len + 4095) / 4096) as u8;
 
-                if file.seek(SeekFrom::Start(table_offset)).is_ok() {
-                    let b0 = ((target_sector >> 16) & 0xFF) as u8;
-                    let b1 = ((target_sector >> 8) & 0xFF) as u8;
-                    let b2 = (target_sector & 0xFF) as u8;
-                    let b3 = sector_len;
-                    let _ = file.write_all(&[b0, b1, b2, b3]);
+                let target_sector = max_sector;
+                max_sector += sector_len as u64;
+
+                if file.seek(SeekFrom::Start(target_sector * 4096)).is_err() {
+                    continue;
                 }
 
-                let now_unix = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_secs() as u32)
-                    .unwrap_or(0);
-
-                if file.seek(SeekFrom::Start(table_offset + 4096)).is_ok() {
-                    let _ = file.write_all(&now_unix.to_be_bytes());
+                let len_bytes = ((compressed.len() + 1) as u32).to_be_bytes();
+                if file.write_all(&len_bytes).is_err()
+                    || file.write_all(&[2u8]).is_err()
+                    || file.write_all(&compressed).is_err()
+                {
+                    continue;
                 }
 
-                if file.seek(SeekFrom::Start(target_sector * 4096)).is_ok() {
-                    let len_bytes = ((compressed.len() + 1) as u32).to_be_bytes();
-                    if file.write_all(&len_bytes).is_ok()
-                        && file.write_all(&[2u8]).is_ok()
-                        && file.write_all(&compressed).is_ok()
-                    {
-                        let padding = ((sector_len as usize) * 4096).saturating_sub(compressed.len() + 5);
-                        if padding > 0 {
-                            let pad_bytes = vec![0u8; padding];
-                            let _ = file.write_all(&pad_bytes);
-                        }
-                        let _ = file.flush();
-                        saved_count += 1;
-                        bytes_count += compressed.len() as u64;
-                    }
+                let padding = ((sector_len as usize) * 4096).saturating_sub(compressed.len() + 5);
+                if padding > 0 {
+                    let pad = vec![0u8; padding];
+                    let _ = file.write_all(&pad);
                 }
+
+                header[offset_idx] = ((target_sector >> 16) & 0xFF) as u8;
+                header[offset_idx + 1] = ((target_sector >> 8) & 0xFF) as u8;
+                header[offset_idx + 2] = (target_sector & 0xFF) as u8;
+                header[offset_idx + 3] = sector_len;
+
+                let ts_bytes = now_unix.to_be_bytes();
+                header[ts_idx..ts_idx + 4].copy_from_slice(&ts_bytes);
+
+                saved_count += 1;
+                bytes_count += payload_len;
+            }
+
+            if file.seek(SeekFrom::Start(0)).is_ok() {
+                let _ = file.write_all(&header);
+                let _ = file.flush();
             }
         }
 

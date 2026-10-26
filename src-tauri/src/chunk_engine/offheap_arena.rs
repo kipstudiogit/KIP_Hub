@@ -46,6 +46,7 @@ impl OffHeapVoxelArena {
         }
     }
 
+    #[allow(dead_code)]
     pub fn allocate_chunk_slab(&self, size_bytes: usize) -> Option<*mut u8> {
         let _guard = self.lock.lock();
         let current = self.head_offset.load(Ordering::Relaxed);
@@ -68,6 +69,7 @@ impl OffHeapVoxelArena {
         }
     }
 
+    #[allow(dead_code)]
     pub fn release_chunk_slab(&self) {
         let current = self.active_in_flight.load(Ordering::Relaxed);
         if current > 0 {

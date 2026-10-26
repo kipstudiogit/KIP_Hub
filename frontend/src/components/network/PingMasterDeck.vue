@@ -6,8 +6,6 @@ import {
   Square,
   Copy,
   FolderSync,
-  Sparkles,
-  Cpu,
   Clock,
   ShieldAlert,
   FastForward,
@@ -22,6 +20,9 @@ import {
   Shield,
   Sliders,
   Network,
+  Cpu,
+  Layers,
+  Terminal,
 } from 'lucide-vue-next'
 import { showToast, t } from '@/store'
 import { useBooster } from '../../composables/useBooster'
@@ -89,6 +90,19 @@ const sparklineSvgPoints = computed(() => {
     .join(' ')
 })
 
+function getCellBgClass(status: number): string {
+  switch (status) {
+    case 1:
+      return 'bg-amber-400 animate-pulse'
+    case 2:
+      return 'bg-emerald-400'
+    case 3:
+      return 'bg-cyan-400 shadow-[0_0_6px_rgba(6,182,212,0.8)]'
+    default:
+      return 'bg-white/5'
+  }
+}
+
 async function copyOptimizedLocalAddress(): Promise<void> {
   if (!currentMetric.value.localProxyPort) return
   const addr = `127.0.0.1:${currentMetric.value.localProxyPort}`
@@ -122,13 +136,15 @@ onBeforeUnmount(() => {
           </div>
           <div>
             <div class="flex items-center gap-2 mb-1">
-              <span class="text-[9px] font-mono uppercase tracking-[0.25em] text-emerald-400 font-black">Zero-GC Native Geometry Engine</span>
+              <span class="text-[9px] font-mono uppercase tracking-[0.25em] text-emerald-400 font-black">
+                Asynchronous Multi-Threaded Region Synthesizer
+              </span>
               <span class="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
                 {{ chunkAcceleratorStatus.engineSignature }}
               </span>
             </div>
             <h3 class="text-2xl font-black uppercase text-white tracking-wider flex items-center gap-3">
-              <span>Quantum Chunk Matrix</span>
+              <span>Voxel Engine • Chunk Pre-Generator</span>
               <span class="text-xs px-2.5 py-0.5 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-mono">
                 {{ chunkAcceleratorStatus.simdCapabilities.simdTier }}
               </span>
@@ -158,25 +174,25 @@ onBeforeUnmount(() => {
 
       <div class="grid grid-cols-4 gap-4 mb-6 relative z-10">
         <div class="bg-black/60 p-4 rounded-2xl border border-white/5 flex flex-col justify-between">
-          <span class="text-[9px] font-mono uppercase text-white/40 font-bold">SIMD Vector Processing</span>
+          <span class="text-[9px] font-mono uppercase text-white/40 font-bold">Hardware Vector Math</span>
           <span class="text-xl font-black text-emerald-400 mt-1 font-mono">
-            {{ chunkAcceleratorStatus.simdCapabilities.vectorWidthBits }}-bit AVX Math
+            {{ chunkAcceleratorStatus.simdCapabilities.vectorWidthBits }}-bit AVX Engine
           </span>
-          <span class="text-[9px] font-mono text-white/50 mt-1">Parallel Voxel Columns</span>
+          <span class="text-[9px] font-mono text-white/50 mt-1">Parallel Heightmap Pipeline</span>
         </div>
 
         <div class="bg-black/60 p-4 rounded-2xl border border-white/5 flex flex-col justify-between">
-          <span class="text-[9px] font-mono uppercase text-white/40 font-bold">2D Checkerboard Topology</span>
+          <span class="text-[9px] font-mono uppercase text-white/40 font-bold">Worker Concurrency</span>
           <span class="text-sm font-black text-cyan-300 mt-1 font-mono truncate">
-            {{ chunkAcceleratorStatus.topologyMetrics.phaseName }}
+            {{ isPrebakingChunks ? `${chunkPrebakeProgress.activeWorkers} Cores Active` : 'Multi-Threaded Pool' }}
           </span>
           <span class="text-[9px] font-mono text-cyan-400/80 mt-1">
-            {{ chunkAcceleratorStatus.topologyMetrics.resolvedCascadesCount }} Cascades Erased
+            {{ isPrebakingChunks ? `${chunkPrebakeProgress.throughputMbPerSec} MB/s I/O` : 'Dynamic Core Scaling' }}
           </span>
         </div>
 
         <div class="bg-black/60 p-4 rounded-2xl border border-white/5 flex flex-col justify-between">
-          <span class="text-[9px] font-mono uppercase text-white/40 font-bold">Off-Heap Voxel Arena</span>
+          <span class="text-[9px] font-mono uppercase text-white/40 font-bold">Off-Heap Memory Buffer</span>
           <span class="text-xl font-black text-purple-300 mt-1 font-mono">
             {{ chunkAcceleratorStatus.arenaMetrics.usedMemoryMb }}M / {{ chunkAcceleratorStatus.arenaMetrics.totalAllocatedMb }}M
           </span>
@@ -186,62 +202,123 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="bg-black/60 p-4 rounded-2xl border border-white/5 flex flex-col justify-between">
-          <span class="text-[9px] font-mono uppercase text-white/40 font-bold">Lock-Free MCA Ring Stream</span>
+          <span class="text-[9px] font-mono uppercase text-white/40 font-bold">Committed MCA Chunks</span>
           <span class="text-xl font-black text-amber-400 mt-1 font-mono">
-            {{ chunkAcceleratorStatus.totalBytesStreamedMb }} MB
+            {{ chunkAcceleratorStatus.totalChunksBuffered }} Chunks
           </span>
           <span class="text-[9px] font-mono text-white/50 mt-1">
-            {{ chunkAcceleratorStatus.totalChunksBuffered }} Chunks Dispatched
+            {{ chunkAcceleratorStatus.totalBytesStreamedMb }} MB Written
           </span>
         </div>
       </div>
 
-      <div class="p-5 bg-black/70 rounded-2xl border border-emerald-500/30 flex items-center justify-between gap-5 relative z-10">
-        <div class="flex items-center gap-4">
-          <div class="flex flex-col">
-            <span class="text-[9px] font-mono uppercase text-white/40 font-bold">Target Center Coordinates</span>
-            <div class="flex gap-2 mt-1">
-              <input v-model.number="prebakeCenterX" type="number" placeholder="X" class="kip-input py-1.5 px-3 text-xs font-mono w-20 text-center">
-              <input v-model.number="prebakeCenterZ" type="number" placeholder="Z" class="kip-input py-1.5 px-3 text-xs font-mono w-20 text-center">
+      <div class="grid grid-cols-12 gap-5 mb-6 relative z-10">
+        <div class="col-span-8 p-4 bg-black/70 rounded-2xl border border-emerald-500/30 flex flex-col justify-between gap-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-4">
+              <div class="flex flex-col">
+                <span class="text-[9px] font-mono uppercase text-white/40 font-bold">Origin Chunk Coords</span>
+                <div class="flex gap-2 mt-1">
+                  <input v-model.number="prebakeCenterX" type="number" placeholder="X" class="kip-input py-1.5 px-3 text-xs font-mono w-20 text-center">
+                  <input v-model.number="prebakeCenterZ" type="number" placeholder="Z" class="kip-input py-1.5 px-3 text-xs font-mono w-20 text-center">
+                </div>
+              </div>
+
+              <div class="flex flex-col">
+                <span class="text-[9px] font-mono uppercase text-white/40 font-bold">Radius</span>
+                <div class="flex gap-1.5 mt-1">
+                  <button
+                    v-for="r in [8, 16, 24, 32]"
+                    :key="r"
+                    @click="targetPrebakeRadius = r"
+                    class="px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold transition border cursor-pointer"
+                    :class="targetPrebakeRadius === r ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' : 'bg-black/40 text-white/50 border-white/10 hover:border-white/30'"
+                  >
+                    {{ r }}c
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <button
+              @click="triggerChunkPrebake(prebakeCenterX, prebakeCenterZ, targetPrebakeRadius)"
+              :disabled="isPrebakingChunks"
+              class="kip-btn-primary px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-wider shadow-[0_0_20px_rgba(16,185,129,0.4)] cursor-pointer flex items-center gap-2"
+            >
+              <Loader v-if="isPrebakingChunks" class="w-4 h-4 animate-spin" />
+              <Zap v-else class="w-4 h-4 fill-current" />
+              <span>{{ isPrebakingChunks ? 'Generating Chunks...' : 'Ignite Pre-Generator' }}</span>
+            </button>
+          </div>
+
+          <div v-if="isPrebakingChunks" class="flex flex-col gap-2 pt-2 border-t border-white/5">
+            <div class="flex justify-between items-center text-xs font-mono">
+              <span class="text-emerald-400 font-bold flex items-center gap-2">
+                <Loader class="w-3.5 h-3.5 animate-spin" />
+                <span>Chunk {{ chunkPrebakeProgress.currentChunk }} ({{ chunkPrebakeProgress.generatedCount }} / {{ chunkPrebakeProgress.totalTargetChunks }})</span>
+              </span>
+              <span class="text-white font-bold">
+                {{ Math.round(chunkPrebakeProgress.percent) }}% • {{ chunkPrebakeProgress.speedChunksPerSec }} c/s • ETA: {{ chunkPrebakeProgress.etaSeconds }}s
+              </span>
+            </div>
+
+            <div class="w-full h-2.5 bg-black/80 rounded-full overflow-hidden border border-white/10">
+              <div
+                class="h-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-indigo-500 transition-all duration-75"
+                :style="{ width: `${chunkPrebakeProgress.percent}%` }"
+              ></div>
             </div>
           </div>
 
-          <div class="flex flex-col">
-            <span class="text-[9px] font-mono uppercase text-white/40 font-bold">Cone Radius</span>
-            <div class="flex gap-1.5 mt-1">
-              <button
-                v-for="r in [8, 16, 24, 32]"
-                :key="r"
-                @click="targetPrebakeRadius = r"
-                class="px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold transition border cursor-pointer"
-                :class="targetPrebakeRadius === r ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' : 'bg-black/40 text-white/50 border-white/10 hover:border-white/30'"
-              >
-                {{ r }}c
-              </button>
+          <div v-if="chunkPrebakeProgress.recentEvents.length > 0" class="bg-black/80 p-2.5 rounded-xl border border-white/5 font-mono text-[10px] text-white/60 space-y-0.5">
+            <div v-for="(ev, idx) in chunkPrebakeProgress.recentEvents.slice(-3)" :key="idx" class="truncate flex items-center gap-1.5">
+              <span class="text-emerald-400">></span>
+              <span>{{ ev }}</span>
             </div>
           </div>
         </div>
 
-        <div class="flex items-center gap-4 flex-1 justify-end max-w-md">
-          <div v-if="isPrebakingChunks" class="flex flex-col gap-1 flex-1">
-            <div class="flex justify-between text-xs font-mono">
-              <span class="text-emerald-400 font-bold">Synthesizing: {{ chunkPrebakeProgress.currentChunk }}</span>
-              <span class="text-white font-bold">{{ Math.round(chunkPrebakeProgress.percent) }}% ({{ chunkPrebakeProgress.speedChunksPerSec }} c/s)</span>
+        <div class="col-span-4 p-4 bg-black/80 rounded-2xl border border-white/10 flex flex-col justify-between items-center">
+          <div class="flex justify-between items-center w-full mb-2">
+            <span class="text-[9px] font-mono uppercase font-bold text-white/50 flex items-center gap-1">
+              <Layers class="w-3 h-3 text-cyan-400" /> Live Region Radar
+            </span>
+            <span class="text-[9px] font-mono text-cyan-400 font-bold">
+              {{ (targetPrebakeRadius * 2 + 1) }}x{{ (targetPrebakeRadius * 2 + 1) }} Grid
+            </span>
+          </div>
+
+          <div
+            class="w-full h-36 bg-black/90 rounded-xl border border-white/5 p-2 flex items-center justify-center overflow-hidden"
+          >
+            <div
+              v-if="chunkPrebakeProgress.gridCells.length > 0"
+              class="grid gap-0.5 w-full h-full"
+              :style="{
+                gridTemplateColumns: `repeat(${chunkPrebakeProgress.gridSize}, minmax(0, 1fr))`,
+                gridTemplateRows: `repeat(${chunkPrebakeProgress.gridSize}, minmax(0, 1fr))`,
+              }"
+            >
+              <div
+                v-for="(cellState, cIdx) in chunkPrebakeProgress.gridCells"
+                :key="cIdx"
+                class="rounded-[1px] transition-colors duration-150"
+                :class="getCellBgClass(cellState)"
+              ></div>
             </div>
-            <div class="w-full h-2 bg-black/80 rounded-full overflow-hidden border border-white/10">
-              <div class="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 transition-all duration-75" :style="{ width: `${chunkPrebakeProgress.percent}%` }"></div>
+
+            <div v-else class="text-center font-mono text-[10px] text-white/30 flex flex-col items-center gap-1">
+              <Compass class="w-6 h-6 opacity-40 mb-1" />
+              <span>Awaiting pre-generation trigger</span>
             </div>
           </div>
 
-          <button
-            @click="triggerChunkPrebake(prebakeCenterX, prebakeCenterZ, targetPrebakeRadius)"
-            :disabled="isPrebakingChunks"
-            class="kip-btn-primary px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-wider shadow-[0_0_20px_rgba(16,185,129,0.4)] cursor-pointer flex items-center gap-2"
-          >
-            <Loader v-if="isPrebakingChunks" class="w-4 h-4 animate-spin" />
-            <Zap v-else class="w-4 h-4 fill-current" />
-            <span>{{ isPrebakingChunks ? 'Vector Synthesizing...' : 'Pre-Bake Directional Cone' }}</span>
-          </button>
+          <div class="flex justify-between items-center w-full mt-2 text-[8px] font-mono text-white/40 uppercase">
+            <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-white/10"></span> Queued</span>
+            <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> Baking</span>
+            <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Buffered</span>
+            <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span> Saved</span>
+          </div>
         </div>
       </div>
     </section>
@@ -488,7 +565,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="p-3.5 rounded-xl border flex items-start gap-2.5 text-xs leading-relaxed bg-emerald-500/10 border-emerald-500/30">
-            <Sparkles class="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+            <Compass class="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
             <span class="text-emerald-400 font-medium">
               {{ memoryMatrixStatus.statusText }}
             </span>

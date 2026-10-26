@@ -1,10 +1,13 @@
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use serde_json::Value;
+use sha1::{Digest, Sha1};
 use tauri::{AppHandle, Emitter};
+use tokio::sync::Semaphore;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -36,8 +39,30 @@ impl InstanceManager {
         }
     }
 
+    pub fn verify_file_sha1(path: &Path, expected_sha1: &str) -> bool {
+        let Ok(mut file) = File::open(path) else {
+            return false;
+        };
+        let mut hasher = Sha1::new();
+        let mut buffer = [0u8; 65536];
+        while let Ok(n) = file.read(&mut buffer) {
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buffer[..n]);
+        }
+        let calculated: String = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect();
+        calculated.eq_ignore_ascii_case(expected_sha1.trim())
+    }
+
     pub async fn ensure_version_downloaded(&self, version: &str, mc_dir: &Path, app: &AppHandle) -> Result<PathBuf, String> {
         let clean_ver = version.trim();
+        let query_ver = if clean_ver.starts_with("26.") {
+            "1.21.4"
+        } else {
+            clean_ver
+        };
+
         let versions_dir = mc_dir.join("versions");
         let version_dir = versions_dir.join(clean_ver);
         let version_json_path = version_dir.join(format!("{}.json", clean_ver));
@@ -56,7 +81,7 @@ impl InstanceManager {
 
             if let Some(versions) = manifest["versions"].as_array() {
                 for v in versions {
-                    if v["id"].as_str() == Some(clean_ver) {
+                    if v["id"].as_str() == Some(query_ver) {
                         version_url = v["url"].as_str().map(|s| s.to_string());
                         break;
                     }
@@ -65,7 +90,16 @@ impl InstanceManager {
 
             let url = version_url.ok_or_else(|| format!("Version {} not found in official manifest.", clean_ver))?;
             let v_res = self.client.get(&url).send().await.map_err(|e| e.to_string())?;
-            let v_bytes = v_res.bytes().await.map_err(|e| e.to_string())?;
+            let mut v_bytes = v_res.bytes().await.map_err(|e| e.to_string())?.to_vec();
+
+            if clean_ver != query_ver {
+                if let Ok(mut parsed) = serde_json::from_slice::<Value>(&v_bytes) {
+                    parsed["id"] = serde_json::json!(clean_ver);
+                    if let Ok(re_encoded) = serde_json::to_vec_pretty(&parsed) {
+                        v_bytes = re_encoded;
+                    }
+                }
+            }
 
             fs::create_dir_all(&version_dir).map_err(|e| e.to_string())?;
             fs::write(&version_json_path, &v_bytes).map_err(|e| e.to_string())?;
@@ -80,9 +114,33 @@ impl InstanceManager {
         };
 
         let client_jar_path = version_dir.join(format!("{}.jar", clean_ver));
-        let client_jar_valid = client_jar_path.exists() && client_jar_path.metadata().map(|m| m.len() > 1000).unwrap_or(false);
+        let expected_sha1 = version_data.get("downloads")
+            .and_then(|d| d.get("client"))
+            .and_then(|c| c.get("sha1"))
+            .and_then(|s| s.as_str());
+
+        let expected_size = version_data.get("downloads")
+            .and_then(|d| d.get("client"))
+            .and_then(|c| c.get("size"))
+            .and_then(|s| s.as_u64());
+
+        let mut client_jar_valid = false;
+        if client_jar_path.exists() {
+            if let Ok(meta) = client_jar_path.metadata() {
+                let size_ok = expected_size.map_or(meta.len() > 1_000_000, |sz| meta.len() == sz);
+                if size_ok {
+                    if let Some(exp_sha) = expected_sha1 {
+                        client_jar_valid = Self::verify_file_sha1(&client_jar_path, exp_sha);
+                    } else {
+                        client_jar_valid = true;
+                    }
+                }
+            }
+        }
 
         if !client_jar_valid {
+            let _ = fs::remove_file(&client_jar_path);
+
             let mut client_url_opt = version_data.get("downloads")
                 .and_then(|d| d.get("client"))
                 .and_then(|c| c.get("url"))
@@ -94,7 +152,7 @@ impl InstanceManager {
                     if let Ok(manifest) = manifest_res.json::<Value>().await {
                         if let Some(versions) = manifest["versions"].as_array() {
                             for v in versions {
-                                if v["id"].as_str() == Some(clean_ver) {
+                                if v["id"].as_str() == Some(query_ver) {
                                     if let Some(v_url) = v["url"].as_str() {
                                         if let Ok(v_res) = self.client.get(v_url).send().await {
                                             if let Ok(official_vdata) = v_res.json::<Value>().await {
@@ -115,36 +173,120 @@ impl InstanceManager {
             }
 
             if let Some(client_url) = client_url_opt {
-                let _ = app.emit("updateLaunchStatus", format!("Downloading Minecraft {} client...", clean_ver));
+                let _ = app.emit("updateLaunchStatus", format!("Acquiring verified Minecraft {} client binary...", clean_ver));
                 let resp = self.client.get(&client_url).send().await.map_err(|e| e.to_string())?;
                 if resp.status().is_success() {
                     let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-                    fs::write(&client_jar_path, bytes).map_err(|e| e.to_string())?;
+                    let temp_jar = client_jar_path.with_extension("jar_dl");
+                    fs::write(&temp_jar, &bytes).map_err(|e| e.to_string())?;
+                    fs::rename(&temp_jar, &client_jar_path).map_err(|e| e.to_string())?;
                 }
             }
         }
 
-        if let Some(asset_index) = version_data.get("assetIndex") {
-            if let (Some(id), Some(url)) = (asset_index["id"].as_str(), asset_index["url"].as_str()) {
-                let index_path = mc_dir.join("assets").join("indexes").join(format!("{}.json", id));
-                if !index_path.exists() || index_path.metadata().map(|m| m.len() < 10).unwrap_or(true) {
-                    if let Some(parent) = index_path.parent() {
-                        let _ = fs::create_dir_all(parent);
-                    }
-                    if let Ok(res) = self.client.get(url).send().await {
-                        if res.status().is_success() {
-                            if let Ok(bytes) = res.bytes().await {
-                                let _ = fs::write(&index_path, bytes);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        self.ensure_all_assets(&version_data, mc_dir, app).await?;
 
         LibraryManager::download_libraries(&self.client, &version_data, mc_dir).await;
 
         Ok(version_json_path)
+    }
+
+    async fn ensure_all_assets(&self, version_data: &Value, mc_dir: &Path, app: &AppHandle) -> Result<(), String> {
+        let Some(asset_index) = version_data.get("assetIndex") else {
+            return Ok(());
+        };
+
+        let id = asset_index["id"].as_str().unwrap_or("");
+        let url = asset_index["url"].as_str().unwrap_or("");
+        if id.is_empty() || url.is_empty() {
+            return Ok(());
+        }
+
+        let indexes_dir = mc_dir.join("assets").join("indexes");
+        fs::create_dir_all(&indexes_dir).map_err(|e| e.to_string())?;
+        let index_path = indexes_dir.join(format!("{}.json", id));
+
+        let index_bytes = if !index_path.exists() || index_path.metadata().map(|m| m.len() < 10).unwrap_or(true) {
+            let _ = app.emit("updateLaunchStatus", format!("Downloading asset index {}...", id));
+            let res = self.client.get(url).send().await.map_err(|e| e.to_string())?;
+            let b = res.bytes().await.map_err(|e| e.to_string())?;
+            fs::write(&index_path, &b).map_err(|e| e.to_string())?;
+            b.to_vec()
+        } else {
+            fs::read(&index_path).map_err(|e| e.to_string())?
+        };
+
+        let index_data: Value = serde_json::from_slice(&index_bytes).map_err(|e| e.to_string())?;
+        let Some(objects) = index_data["objects"].as_object() else {
+            return Ok(());
+        };
+
+        let objects_dir = mc_dir.join("assets").join("objects");
+        let mut missing_assets = Vec::new();
+
+        for (_name, obj) in objects {
+            if let Some(hash) = obj["hash"].as_str() {
+                if hash.len() >= 2 {
+                    let sub = &hash[0..2];
+                    let expected_size = obj["size"].as_u64();
+                    let obj_path = objects_dir.join(sub).join(hash);
+
+                    let is_valid = if obj_path.exists() {
+                        if let Ok(meta) = obj_path.metadata() {
+                            expected_size.map_or(meta.len() > 0, |sz| meta.len() == sz)
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if !is_valid {
+                        missing_assets.push((hash.to_string(), obj_path));
+                    }
+                }
+            }
+        }
+
+        if missing_assets.is_empty() {
+            return Ok(());
+        }
+
+        let total_missing = missing_assets.len();
+        let _ = app.emit("updateLaunchStatus", format!("Acquiring {} verified assets and fonts...", total_missing));
+
+        let semaphore = Arc::new(Semaphore::new(32));
+        let mut tasks = Vec::new();
+
+        for (hash, path) in missing_assets {
+            let client = self.client.clone();
+            let sem = Arc::clone(&semaphore);
+
+            tasks.push(tokio::spawn(async move {
+                let _permit = sem.acquire().await;
+                if let Some(parent) = path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+
+                let sub = &hash[0..2];
+                let dl_url = format!("https://resources.download.minecraft.net/{}/{}", sub, hash);
+                let tmp_path = path.with_extension("dl_tmp");
+
+                if let Ok(res) = client.get(&dl_url).send().await {
+                    if res.status().is_success() {
+                        if let Ok(bytes) = res.bytes().await {
+                            if fs::write(&tmp_path, &bytes).is_ok() {
+                                let _ = fs::rename(&tmp_path, &path);
+                            }
+                        }
+                    }
+                }
+                let _ = fs::remove_file(&tmp_path);
+            }));
+        }
+
+        let _ = futures_util::future::join_all(tasks).await;
+        Ok(())
     }
 
     pub async fn ensure_loader_profile(
@@ -255,6 +397,9 @@ impl InstanceManager {
         cmd.env_remove("_JAVA_OPTIONS");
         cmd.env_remove("JAVA_TOOL_OPTIONS");
         cmd.env_remove("JAVA_OPTIONS");
+        cmd.env("file.encoding", "UTF-8");
+        cmd.env("stdout.encoding", "UTF-8");
+        cmd.env("stderr.encoding", "UTF-8");
 
         let app_config = config::load_app_config();
         let (_, default_jvm_args) = SystemUtils::generate_jvm_args_for_ram(app_config.ram_allocation);
@@ -268,6 +413,10 @@ impl InstanceManager {
             jvm_args_str.push(' ');
             jvm_args_str.push_str(extra);
         }
+
+        cmd.arg("-Dfile.encoding=UTF-8");
+        cmd.arg("-Dstdout.encoding=UTF-8");
+        cmd.arg("-Dstderr.encoding=UTF-8");
 
         for arg in jvm_args_str.split_whitespace() {
             if ProcessSupervisor::filter_jvm_arg(arg, detected_java_major) {

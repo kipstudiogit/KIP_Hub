@@ -73,7 +73,7 @@ pub async fn booster_chunk_accelerator_prebake_stream(
     tokio::task::spawn_blocking(move || {
         chunk_engine
             .run_prebake_stream(&instance_path, center_x, center_z, radius, progress_channel)
-            .map_err(|e| AppError::Launch(e))
+            .map_err(AppError::Launch)
     })
     .await
     .map_err(|e| AppError::TaskPanic(e.to_string()))?
@@ -92,7 +92,11 @@ pub async fn booster_chunk_accelerator_flush_ring(
         Ok(ChunkRingFlushResultDto {
             chunks_flushed: chunks,
             bytes_written: bytes,
-            message: format!("Flushed {} pending chunks ({:.2} MB) into active MCA sectors", chunks, (bytes as f64) / (1024.0 * 1024.0)),
+            message: format!(
+                "Committed {} buffered chunks ({:.2} MB) into active MCA region files",
+                chunks,
+                (bytes as f64) / (1024.0 * 1024.0)
+            ),
         })
     })
     .await
@@ -130,7 +134,7 @@ pub async fn booster_memory_matrix_grant_privilege(
 ) -> Result<bool, AppError> {
     let memory_matrix = state.memory_matrix.clone();
     tokio::task::spawn_blocking(move || {
-        memory_matrix.grant_se_lock_privilege().map_err(|e| AppError::Config(e))
+        memory_matrix.grant_se_lock_privilege().map_err(AppError::Config)
     })
     .await
     .map_err(|e| AppError::TaskPanic(e.to_string()))?
@@ -149,7 +153,10 @@ pub async fn booster_memory_matrix_prefault_cache(
         Ok(MemoryPrefaultResultDto {
             files_cached: files,
             transferred_mb: mb,
-            message: format!("Mapped {} JAR modules directly into Standby OS Cache ({:.1} MB ready)", files, mb),
+            message: format!(
+                "Mapped {} JAR modules directly into Standby OS Cache ({:.1} MB ready)",
+                files, mb
+            ),
         })
     })
     .await
@@ -176,6 +183,16 @@ pub fn booster_ping_master_detect_vpn() -> VpnDetectionDto {
 }
 
 #[tauri::command]
+pub fn booster_optimize_tcp_registry(enable: bool) -> Result<bool, AppError> {
+    NetworkOptimizer::optimize_windows_tcp_registry(enable).map_err(AppError::Config)
+}
+
+#[tauri::command]
+pub fn booster_get_tcp_registry_status() -> bool {
+    NetworkOptimizer::get_windows_tcp_registry_status()
+}
+
+#[tauri::command]
 pub async fn booster_ping_master_start(
     state: State<'_, AppState>,
     target_host: String,
@@ -195,7 +212,7 @@ pub async fn booster_ping_master_start(
         .net_optimizer
         .start_proxy(clean_host.clone(), port, config, channel)
         .await
-        .map_err(|e| AppError::Launch(e))?;
+        .map_err(AppError::Launch)?;
 
     Ok(PingMasterStatusDto {
         running: true,
@@ -236,11 +253,9 @@ pub async fn get_hardware_booster_status(
     let instance_path = PathBuf::from(&cfg.current_instance);
     let booster = state.hardware_booster.clone();
 
-    tokio::task::spawn_blocking(move || {
-        Ok(booster.get_status(&instance_path))
-    })
-    .await
-    .map_err(|e| AppError::TaskPanic(e.to_string()))?
+    tokio::task::spawn_blocking(move || Ok(booster.get_status(&instance_path)))
+        .await
+        .map_err(|e| AppError::TaskPanic(e.to_string()))?
 }
 
 #[tauri::command]
@@ -252,7 +267,7 @@ pub async fn execute_asset_transcode_stream(
 
     tokio::task::spawn_blocking(move || {
         AssetTranscoder::execute_pipeline(&instance_path, progress_channel)
-            .map_err(|e| AppError::Launch(e))
+            .map_err(AppError::Launch)
     })
     .await
     .map_err(|e| AppError::TaskPanic(e.to_string()))?
@@ -297,7 +312,10 @@ pub async fn trigger_page_cache_warmup(
         Ok(PageCacheWarmupResultDto {
             files_warmed: files,
             transferred_mb: (mb * 10.0).round() / 10.0,
-            message: format!("Evaporated I/O lag for {} mods ({:.1} MB read into Standby List)", files, mb),
+            message: format!(
+                "Evaporated I/O lag for {} mods ({:.1} MB read into Standby List)",
+                files, mb
+            ),
         })
     })
     .await

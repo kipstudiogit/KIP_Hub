@@ -23,6 +23,7 @@ const {
   isPinging,
   pingResult,
   recentPings,
+  discoveredLanServers,
   tunnelPort,
   activeTunnelEndpoint,
   pteroUrl,
@@ -72,18 +73,18 @@ onBeforeUnmount(() => {
           <Zap class="w-3.5 h-3.5" /> Hardware Booster
         </button>
         <button
-          @click="activeSubTab = 'voice'"
-          class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center gap-2 cursor-pointer"
-          :class="activeSubTab === 'voice' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.2)]' : 'text-white/40 hover:text-white'"
-        >
-          <Mic class="w-3.5 h-3.5" /> Lobby & Voice
-        </button>
-        <button
           @click="activeSubTab = 'radar'"
           class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center gap-2 cursor-pointer"
           :class="activeSubTab === 'radar' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_20px_rgba(99,102,241,0.2)]' : 'text-white/40 hover:text-white'"
         >
           <Activity class="w-3.5 h-3.5" /> Radar & Tunnel
+        </button>
+        <button
+          @click="activeSubTab = 'voice'"
+          class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center gap-2 cursor-pointer"
+          :class="activeSubTab === 'voice' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.2)]' : 'text-white/40 hover:text-white'"
+        >
+          <Mic class="w-3.5 h-3.5" /> Lobby & Voice
         </button>
         <button
           @click="activeSubTab = 'remote'"
@@ -105,8 +106,6 @@ onBeforeUnmount(() => {
     <main class="flex-1 overflow-y-auto custom-scroll pr-2 pb-6 min-h-0 z-10">
       <PingMasterDeck v-show="activeSubTab === 'booster'" />
 
-      <VoiceLobbyDeck v-show="activeSubTab === 'voice'" />
-
       <ServerRadarDeck
         v-show="activeSubTab === 'radar'"
         :net-ip="netIp"
@@ -115,12 +114,15 @@ onBeforeUnmount(() => {
         :recent-pings="recentPings"
         :tunnel-port="tunnelPort"
         :active-tunnel-endpoint="activeTunnelEndpoint"
+        :discovered-lan-servers="discoveredLanServers"
         @update:net-ip="netIp = $event"
         @update:tunnel-port="tunnelPort = $event"
         @ping="pingTargetServer($event)"
         @start-tunnel="startReverseTunnel"
         @stop-tunnel="stopReverseTunnel"
       />
+
+      <VoiceLobbyDeck v-show="activeSubTab === 'voice'" />
 
       <CloudDecks
         v-show="activeSubTab === 'remote'"

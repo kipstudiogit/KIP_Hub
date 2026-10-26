@@ -35,14 +35,14 @@ const chunkAcceleratorStatus = ref<ChunkAcceleratorStatusDto>({
     avx2Supported: true,
     fmaSupported: true,
     vectorWidthBits: 256,
-    simdTier: 'AVX2 SIMD 8-Way Parallel',
+    simdTier: 'AVX2 8-Way SIMD',
   },
   ringBufferPendingChunks: 0,
   totalChunksBuffered: 0,
   totalBytesStreamedMb: 0,
   predictiveConeRadius: 16,
   estimatedTpsGain: 4.2,
-  engineSignature: 'AVX2/AVX-512 Matrix Ring 4.2 (Zero-GC)',
+  engineSignature: 'Voxel Engine 4.2 • Asynchronous MCA Pipeline',
   arenaMetrics: {
     totalAllocatedMb: 128,
     usedMemoryMb: 0,
@@ -52,10 +52,10 @@ const chunkAcceleratorStatus = ref<ChunkAcceleratorStatusDto>({
   },
   topologyMetrics: {
     currentPhase: 0,
-    phaseName: 'Phase 0 [Even, Even] - Primary Slabs',
+    phaseName: 'Phase 0 [Even, Even] - Primary Blocks',
     queuedChunks: 0,
     resolvedCascadesCount: 0,
-    threadConcurrencyTier: 'Zero-Lock 2D Cellular Automaton',
+    threadConcurrencyTier: 'Multi-Core Worker Pool',
   },
 })
 
@@ -67,6 +67,12 @@ const chunkPrebakeProgress = ref<ChunkPrebakeProgressDto>({
   totalTargetChunks: 0,
   percent: 0,
   speedChunksPerSec: 0,
+  activeWorkers: 0,
+  throughputMbPerSec: 0,
+  etaSeconds: 0,
+  gridSize: 33,
+  gridCells: [],
+  recentEvents: [],
 })
 
 const memoryMatrixStatus = ref<MemoryMatrixStatusDto>({
@@ -144,6 +150,7 @@ const boosterStatus = ref<HardwareBoosterStatusDto>({
   defenderExcludedPaths: [],
   appCdsArchiveExists: false,
   appCdsArchiveSizeMb: 0,
+  cracSupported: false,
   cracCheckpointExists: false,
   shaderCachePath: '',
   pageCacheWarmFiles: 0,
@@ -216,7 +223,7 @@ export function useBooster() {
     try {
       await invoke('booster_chunk_accelerator_toggle', { enable })
       await fetchChunkAcceleratorStatus()
-      showToast(t('Chunk Matrix'), enable ? t('AVX2/SIMD Engine Engaged.') : t('Engine Disengaged.'), 'info')
+      showToast(t('Voxel Engine'), enable ? t('Voxel Engine Pre-Generator Armed.') : t('Engine Disengaged.'), 'info')
     } catch (err: unknown) {
       showToast(t('Error'), String(err), 'danger')
     }
@@ -226,11 +233,17 @@ export function useBooster() {
     if (isPrebakingChunks.value) return
     isPrebakingChunks.value = true
     chunkPrebakeProgress.value = {
-      currentChunk: 'Priming vector pipeline...',
+      currentChunk: 'Initializing worker threads...',
       generatedCount: 0,
       totalTargetChunks: 0,
       percent: 0,
       speedChunksPerSec: 0,
+      activeWorkers: 0,
+      throughputMbPerSec: 0,
+      etaSeconds: 0,
+      gridSize: (radius * 2 + 1),
+      gridCells: [],
+      recentEvents: ['Spawning multi-threaded worker pool...'],
     }
 
     const channel = new Channel<ChunkPrebakeProgressDto>()
@@ -245,10 +258,10 @@ export function useBooster() {
         radius,
         progressChannel: channel,
       })
-      showToast(t('Pre-baking Finalized'), res.message, 'success')
+      showToast(t('Pre-Generator Finished'), res.message, 'success')
       await fetchChunkAcceleratorStatus()
     } catch (err: unknown) {
-      showToast(t('Chunk Pre-bake Fault'), String(err), 'danger')
+      showToast(t('Pre-Generator Error'), String(err), 'danger')
     } finally {
       isPrebakingChunks.value = false
     }

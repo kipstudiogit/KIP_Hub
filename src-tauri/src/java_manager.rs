@@ -2,13 +2,18 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
+use std::process::Command;
 use parking_lot::Mutex;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use zip::ZipArchive;
 use crate::config;
-use crate::system_utils::SystemUtils;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 static JAVA_PROBE_CACHE: Mutex<Option<HashMap<String, u32>>> = Mutex::new(None);
 
@@ -21,7 +26,7 @@ impl JavaManager {
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
-            HeaderValue::from_static("KIPStudio/KIP_Hub/1.6.0 (contact@kip.studio)"),
+            HeaderValue::from_static("KIPStudio/KIP_Hub/2.0.0 (contact@kip.studio)"),
         );
 
         Self {
@@ -44,11 +49,7 @@ impl JavaManager {
     }
 
     pub fn get_required_java_major(&self, loader: &str, version: &str, version_data: Option<&Value>) -> u32 {
-        let (major, minor, patch) = Self::parse_mc_version(version);
-
-        if major >= 26 {
-            return 25;
-        }
+        let (_major, minor, patch) = Self::parse_mc_version(version);
 
         let norm_loader = loader.to_lowercase();
 
@@ -118,8 +119,12 @@ impl JavaManager {
             }
         }
 
-        let mut cmd = SystemUtils::silent_command(&probe_path);
+        let mut cmd = Command::new(&probe_path);
         cmd.arg("-version");
+        #[cfg(target_os = "windows")]
+        {
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
 
         let output = cmd.output().ok()?;
         let text = format!(
@@ -148,6 +153,28 @@ impl JavaManager {
             }
         }
 
+        for word in text.split_whitespace() {
+            let clean = word.trim_matches(|c: char| !c.is_numeric() && c != '.');
+            if clean.contains('.') {
+                let dot_parts: Vec<&str> = clean.split('.').collect();
+                if let Ok(first) = dot_parts[0].parse::<u32>() {
+                    if (7..=30).contains(&first) {
+                        let mut guard = JAVA_PROBE_CACHE.lock();
+                        let map = guard.get_or_insert_with(HashMap::new);
+                        map.insert(probe_path, first);
+                        return Some(first);
+                    } else if first == 1 && dot_parts.len() > 1 {
+                        if let Ok(sub) = dot_parts[1].parse::<u32>() {
+                            let mut guard = JAVA_PROBE_CACHE.lock();
+                            let map = guard.get_or_insert_with(HashMap::new);
+                            map.insert(probe_path, sub);
+                            return Some(sub);
+                        }
+                    }
+                }
+            }
+        }
+
         let mut guard = JAVA_PROBE_CACHE.lock();
         let map = guard.get_or_insert_with(HashMap::new);
         map.insert(probe_path, 0);
@@ -155,7 +182,6 @@ impl JavaManager {
     }
 
     pub fn find_compatible_java_binary(&self, mc_dir: &Path, required_major: u32) -> Option<String> {
-        let target_major = required_major;
         let mut candidates = Vec::new();
 
         if let Ok(java_home) = std::env::var("JAVA_HOME") {
@@ -171,7 +197,7 @@ impl JavaManager {
             }
         }
 
-        let isolated_runtime_dir = mc_dir.join("runtime").join(format!("kip-java-{}", target_major));
+        let isolated_runtime_dir = mc_dir.join("runtime").join(format!("kip-java-{}", required_major));
         if isolated_runtime_dir.exists() {
             #[cfg(target_os = "windows")]
             {
@@ -203,54 +229,19 @@ impl JavaManager {
         let runtime_dir = mc_dir.join("runtime");
         if runtime_dir.exists() {
             let win_runtimes = [
-                "java-runtime-epsilon/windows-x64/java-runtime-epsilon/bin/javaw.exe",
-                "java-runtime-delta/windows-x64/java-runtime-delta/bin/javaw.exe",
                 "java-runtime-gamma/windows-x64/java-runtime-gamma/bin/javaw.exe",
+                "java-runtime-delta/windows-x64/java-runtime-delta/bin/javaw.exe",
+                "java-runtime-epsilon/windows-x64/java-runtime-epsilon/bin/javaw.exe",
                 "java-runtime-beta/windows-x64/java-runtime-beta/bin/javaw.exe",
                 "jre-legacy/windows-x64/jre-legacy/bin/javaw.exe",
             ];
             for r in win_runtimes {
                 candidates.push(runtime_dir.join(r));
             }
-
-            let unix_runtimes = [
-                "java-runtime-epsilon/bin/java",
-                "java-runtime-delta/bin/java",
-                "java-runtime-gamma/bin/java",
-                "java-runtime-beta/bin/java",
-                "jre-legacy/bin/java",
-            ];
-            for r in unix_runtimes {
-                candidates.push(runtime_dir.join(r));
-            }
         }
 
         #[cfg(target_os = "windows")]
         {
-            if let Some(local_app_data) = dirs::data_local_dir() {
-                let ms_store_pkg = local_app_data.join("Packages");
-                if let Ok(entries) = fs::read_dir(ms_store_pkg) {
-                    for entry in entries.filter_map(|e| e.ok()) {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        if name.starts_with("Microsoft.4297127D64C6C") {
-                            let runtime_sub = entry.path().join("LocalCache").join("Local").join("runtime");
-                            if runtime_sub.exists() {
-                                let sub_win = [
-                                    "java-runtime-epsilon/windows-x64/java-runtime-epsilon/bin/javaw.exe",
-                                    "java-runtime-delta/windows-x64/java-runtime-delta/bin/javaw.exe",
-                                    "java-runtime-gamma/windows-x64/java-runtime-gamma/bin/javaw.exe",
-                                    "java-runtime-beta/windows-x64/java-runtime-beta/bin/javaw.exe",
-                                    "jre-legacy/windows-x64/jre-legacy/bin/javaw.exe",
-                                ];
-                                for sw in sub_win {
-                                    candidates.push(runtime_sub.join(sw));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             let win_dirs = [
                 "C:\\Program Files\\Eclipse Adoptium",
                 "C:\\Program Files\\Microsoft",
@@ -283,7 +274,17 @@ impl JavaManager {
             if c.exists() {
                 let path_str = c.to_string_lossy().to_string();
                 if let Some(major) = self.check_java_binary(&path_str) {
-                    if major == target_major {
+                    let is_acceptable = if required_major == 8 {
+                        major == 8
+                    } else if required_major == 17 {
+                        major == 17 || major >= 21
+                    } else if required_major == 21 {
+                        major >= 21
+                    } else {
+                        major >= required_major
+                    };
+
+                    if is_acceptable {
                         #[cfg(target_os = "windows")]
                         {
                             let javaw = c.with_file_name("javaw.exe");
@@ -301,7 +302,7 @@ impl JavaManager {
     }
 
     pub async fn ensure_java_runtime(&self, mc_dir: &Path, required_major: u32, app: &AppHandle) -> Result<String, String> {
-        let target_major = required_major;
+        let target_major = if required_major >= 25 { 21 } else { required_major };
 
         if let Some(existing) = self.find_compatible_java_binary(mc_dir, target_major) {
             return Ok(existing);
@@ -399,7 +400,17 @@ impl JavaManager {
         let required_major = self.get_required_java_major(loader, version, Some(version_data));
         let system_major = self.check_java_binary("java").unwrap_or(0);
 
-        if system_major == required_major {
+        let is_system_compatible = if required_major == 8 {
+            system_major == 8
+        } else if required_major == 17 {
+            system_major == 17 || system_major >= 21
+        } else if required_major == 21 {
+            system_major >= 21
+        } else {
+            system_major >= required_major
+        };
+
+        if is_system_compatible {
             return Ok("java".to_string());
         }
 
@@ -407,6 +418,12 @@ impl JavaManager {
             return Ok(found_java);
         }
 
-        Err(format!("No compatible Java {} environment detected.", required_major))
+        if required_major == 17 {
+            if let Some(found_21) = self.find_compatible_java_binary(mc_dir, 21) {
+                return Ok(found_21);
+            }
+        }
+
+        Err(format!("No compatible Java {} environment detected on host system.", required_major))
     }
 }
